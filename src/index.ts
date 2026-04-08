@@ -11,7 +11,8 @@ if (!PORT){
     logger.info(`El puerto ${PORT} disponible`);
 }
 const allowedOrigins: string[] = [
-    "http://localhost:3001",
+    `http://localhost:${PORT}`,
+    "https://conmedrfidbackend.onrender.com"
 ];
 const corsoptions = {
     origin: function (origin: string | undefined, callback: Function){
