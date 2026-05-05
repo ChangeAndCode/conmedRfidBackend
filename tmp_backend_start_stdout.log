@@ -1,0 +1,3 @@
+2026-05-05T04:58:46.343Z [INFO]: El puerto 3000 esta disponible
+2026-05-05T04:58:47.576Z [INFO]: Mongo conectado a la base conmed-rfid
+2026-05-05T04:58:47.774Z [INFO]: Sistema RFID corriendo en http://localhost:3000

@@ -6,6 +6,8 @@ import { env } from "./config/env";
 import { logger } from "./config/logger";
 import doubleScanReadRouter from "./routes/doubleScanReadRoutes";
 import manualReadRouter from "./routes/manualReadRoutes";
+import partConfigRouter from "./routes/partConfigRoutes";
+import { seedDefaultPartConfigs } from "./services/partConfigService";
 
 const app = express();
 
@@ -57,11 +59,13 @@ app.get("/health", (req, res) => {
 
 app.use("/api/manual-reads", manualReadRouter);
 app.use("/api/double-scan-reads", doubleScanReadRouter);
+app.use("/api/part-configs", partConfigRouter);
 
 const bootstrap = async (): Promise<void> => {
     try {
         logger.info(`El puerto ${env.port} esta disponible`);
         await connectToDatabase();
+        await seedDefaultPartConfigs();
 
         app.listen(env.port, () => {
             logger.info(`Sistema RFID corriendo en http://localhost:${env.port}`);

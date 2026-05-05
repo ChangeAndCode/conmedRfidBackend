@@ -1,7 +1,11 @@
 import { Request, Response } from "express";
 import { isValidObjectId } from "mongoose";
-import { doubleScanPartCatalog, getDoubleScanPartConfig } from "../config/doubleScanCatalog";
 import { DoubleScanRead, DoubleScanReadModel, doubleScanReadStatuses } from "../models/doubleScanRead";
+import {
+    getPartConfigByPartNumber,
+    listPartConfigs,
+    validateDoubleScanPartConfig,
+} from "../services/partConfigService";
 import { parseDoubleScanReading } from "../services/gs1Parser";
 import { normalizeOptionalText, normalizeRequiredText } from "../utils/requestNormalization";
 
@@ -15,9 +19,14 @@ type CreateDoubleScanReadBody = {
 };
 
 export const listDoubleScanConfigs = async (req: Request, res: Response): Promise<void> => {
+    const configs = await listPartConfigs({
+        readingMode: "double_scan",
+        isActive: true,
+    });
+
     res.json({
-        count: doubleScanPartCatalog.length,
-        data: doubleScanPartCatalog,
+        count: configs.length,
+        data: configs,
     });
 };
 
@@ -33,16 +42,17 @@ export const createDoubleScanRead = async (
         const notes = normalizeOptionalText(req.body.notes);
         const createdBy = normalizeOptionalText(req.body.createdBy);
 
-        const partConfig = getDoubleScanPartConfig(partNumber);
+        const partConfig = await getPartConfigByPartNumber(partNumber, "double_scan", true);
 
         if (!partConfig) {
             throw new Error("El numero de parte no esta configurado para doble lectura");
         }
 
-        const parsedReading = parseDoubleScanReading(partConfig, firstBarcodeRaw, secondBarcodeRaw);
+        const resolvedPartConfig = validateDoubleScanPartConfig(partConfig);
+        const parsedReading = parseDoubleScanReading(resolvedPartConfig, firstBarcodeRaw, secondBarcodeRaw);
         const payload: DoubleScanRead = {
             partNumber,
-            rfidProgram: partConfig.rfidProgram,
+            rfidProgram: resolvedPartConfig.rfidProgram,
             firstBarcodeRaw: parsedReading.firstBarcodeRaw,
             secondBarcodeRaw: parsedReading.secondBarcodeRaw,
             firstScanFields: parsedReading.firstScanFields,
@@ -59,8 +69,8 @@ export const createDoubleScanRead = async (
             payload.serviceOrder = serviceOrder;
         }
 
-        if (partConfig.filterLabel) {
-            payload.filterLabel = partConfig.filterLabel;
+        if (resolvedPartConfig.filterLabel) {
+            payload.filterLabel = resolvedPartConfig.filterLabel;
         }
 
         if (notes) {

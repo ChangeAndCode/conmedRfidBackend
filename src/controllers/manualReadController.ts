@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { isValidObjectId } from "mongoose";
 import { ManualRead, ManualReadModel, manualReadStatuses } from "../models/manualRead";
+import { getPartConfigByPartNumber } from "../services/partConfigService";
 import { normalizeOptionalText, normalizeRequiredText } from "../utils/requestNormalization";
 
 type CreateManualReadBody = {
@@ -21,8 +22,15 @@ export const createManualRead = async (
     res: Response
 ): Promise<void> => {
     try {
+        const partNumber = normalizeRequiredText(req.body.partNumber, "partNumber").toUpperCase();
+        const partConfig = await getPartConfigByPartNumber(partNumber, "manual", true);
+
+        if (!partConfig) {
+            throw new Error("El numero de parte no esta configurado para lectura manual");
+        }
+
         const payload: ManualRead = {
-            partNumber: normalizeRequiredText(req.body.partNumber, "partNumber").toUpperCase(),
+            partNumber,
             lot: normalizeRequiredText(req.body.lot, "lot"),
             manufactureDate: normalizeRequiredText(req.body.manufactureDate, "manufactureDate"),
             inputMethod: "manual",
@@ -30,12 +38,15 @@ export const createManualRead = async (
         };
 
         const serviceOrder = normalizeOptionalText(req.body.serviceOrder);
-        const rfidProgram = normalizeOptionalText(req.body.rfidProgram)?.toUpperCase();
-        const gtin = normalizeOptionalText(req.body.gtin);
-        const filterLabel = normalizeOptionalText(req.body.filterLabel);
+        const requestRfidProgram = normalizeOptionalText(req.body.rfidProgram)?.toUpperCase();
+        const requestGtin = normalizeOptionalText(req.body.gtin);
+        const requestFilterLabel = normalizeOptionalText(req.body.filterLabel);
         const rawReference = normalizeOptionalText(req.body.rawReference);
         const notes = normalizeOptionalText(req.body.notes);
         const createdBy = normalizeOptionalText(req.body.createdBy);
+        const rfidProgram = partConfig.rfidProgram ?? requestRfidProgram;
+        const gtin = partConfig.expectedGtin ?? requestGtin;
+        const filterLabel = partConfig.filterLabel ?? requestFilterLabel;
 
         if (serviceOrder) {
             payload.serviceOrder = serviceOrder;

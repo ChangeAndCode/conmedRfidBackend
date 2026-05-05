@@ -1,6 +1,10 @@
-import { DoubleScanPartConfig } from "../config/doubleScanCatalog";
-
 const GROUP_SEPARATOR = String.fromCharCode(29);
+
+export interface DoubleScanValidationConfig {
+    expectedGtin: string;
+    expectedLotLength: number;
+    lotTrimRight?: number;
+}
 
 type ParsedGs1Fields = {
     ai01?: string;
@@ -102,7 +106,7 @@ const formatGs1Date = (ai11Date: string): string => {
 };
 
 export const parseDoubleScanReading = (
-    partConfig: DoubleScanPartConfig,
+    partConfig: DoubleScanValidationConfig,
     firstBarcodeRaw: string,
     secondBarcodeRaw: string
 ): DoubleScanParseResult => {
