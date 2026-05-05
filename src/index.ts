@@ -4,6 +4,7 @@ import express from "express";
 import { connectToDatabase, disconnectFromDatabase, getDatabaseStatus } from "./config/database";
 import { env } from "./config/env";
 import { logger } from "./config/logger";
+import doubleScanReadRouter from "./routes/doubleScanReadRoutes";
 import manualReadRouter from "./routes/manualReadRoutes";
 
 const app = express();
@@ -55,6 +56,7 @@ app.get("/health", (req, res) => {
 });
 
 app.use("/api/manual-reads", manualReadRouter);
+app.use("/api/double-scan-reads", doubleScanReadRouter);
 
 const bootstrap = async (): Promise<void> => {
     try {

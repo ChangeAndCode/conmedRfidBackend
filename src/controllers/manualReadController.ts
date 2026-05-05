@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { isValidObjectId } from "mongoose";
 import { ManualRead, ManualReadModel, manualReadStatuses } from "../models/manualRead";
+import { normalizeOptionalText, normalizeRequiredText } from "../utils/requestNormalization";
 
 type CreateManualReadBody = {
     serviceOrder?: unknown;
@@ -13,25 +14,6 @@ type CreateManualReadBody = {
     rawReference?: unknown;
     notes?: unknown;
     createdBy?: unknown;
-};
-
-const normalizeOptionalText = (value: unknown): string | undefined => {
-    if (typeof value !== "string") {
-        return undefined;
-    }
-
-    const normalized = value.trim();
-    return normalized.length > 0 ? normalized : undefined;
-};
-
-const normalizeRequiredText = (value: unknown, fieldName: string): string => {
-    const normalized = normalizeOptionalText(value);
-
-    if (!normalized) {
-        throw new Error(`El campo ${fieldName} es obligatorio`);
-    }
-
-    return normalized;
 };
 
 export const createManualRead = async (
