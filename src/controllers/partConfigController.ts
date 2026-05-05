@@ -351,3 +351,27 @@ export const deletePartConfig = async (req: Request<{ id: string }>, res: Respon
         data: config,
     });
 };
+
+export const permanentlyDeletePartConfig = async (
+    req: Request<{ id: string }>,
+    res: Response
+): Promise<void> => {
+    const { id } = req.params;
+
+    if (!isValidObjectId(id)) {
+        res.status(400).json({ message: "El id no es valido" });
+        return;
+    }
+
+    const config = await PartConfigModel.findByIdAndDelete(id);
+
+    if (!config) {
+        res.status(404).json({ message: "Configuracion de numero de parte no encontrada" });
+        return;
+    }
+
+    res.json({
+        message: "Configuracion de numero de parte eliminada permanentemente",
+        data: config,
+    });
+};

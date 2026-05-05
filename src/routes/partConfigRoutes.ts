@@ -4,6 +4,7 @@ import {
     deletePartConfig,
     getPartConfigById,
     listPartConfigsHandler,
+    permanentlyDeletePartConfig,
     updatePartConfig,
 } from "../controllers/partConfigController";
 
@@ -13,6 +14,7 @@ partConfigRouter.get("/", listPartConfigsHandler);
 partConfigRouter.get("/:id", getPartConfigById);
 partConfigRouter.post("/", createPartConfig);
 partConfigRouter.patch("/:id", updatePartConfig);
+partConfigRouter.delete("/:id/permanent", permanentlyDeletePartConfig);
 partConfigRouter.delete("/:id", deletePartConfig);
 
 export default partConfigRouter;
