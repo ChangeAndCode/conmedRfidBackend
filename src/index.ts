@@ -1,6 +1,7 @@
 import cors from "cors";
 import "dotenv/config";
 import express from "express";
+import authRouter from "./routes/authRoutes";
 import { connectToDatabase, disconnectFromDatabase, getDatabaseStatus } from "./config/database";
 import { env } from "./config/env";
 import { logger } from "./config/logger";
@@ -60,6 +61,7 @@ app.get("/health", (req, res) => {
 app.use("/api/manual-reads", manualReadRouter);
 app.use("/api/double-scan-reads", doubleScanReadRouter);
 app.use("/api/part-configs", partConfigRouter);
+app.use("/api/auth", authRouter);
 
 const bootstrap = async (): Promise<void> => {
     try {
