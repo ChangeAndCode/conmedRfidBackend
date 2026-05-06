@@ -52,6 +52,22 @@ export const getPartConfigByPartNumber = async (
     return PartConfigModel.findOne(query);
 };
 
+export const listDoubleScanPartConfigsByGtin = async (expectedGtin: string): Promise<PartConfig[]> => {
+    return PartConfigModel.find({
+        expectedGtin,
+        readingMode: "double_scan",
+        isActive: true,
+    }).sort({ partNumber: 1 });
+};
+
+export const getActiveDoubleScanPartConfigById = async (id: string): Promise<PartConfig | null> => {
+    return PartConfigModel.findOne({
+        _id: id,
+        readingMode: "double_scan",
+        isActive: true,
+    });
+};
+
 export const validateDoubleScanPartConfig = (partConfig: PartConfig): DoubleScanResolvedConfig => {
     if (!partConfig.rfidProgram) {
         throw new Error("La configuracion del numero de parte no tiene RFID program");

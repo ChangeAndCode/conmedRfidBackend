@@ -29,6 +29,12 @@ export interface DoubleScanParseResult {
     rulesApplied: string[];
 }
 
+export interface FirstScanParseResult {
+    firstBarcodeRaw: string;
+    firstScanFields: ParsedGs1Fields;
+    gtin: string;
+}
+
 const normalizeScanValue = (raw: string): string => {
     return raw.replace(/[\r\n\t]/g, "").trim();
 };
@@ -96,13 +102,18 @@ const parseGs1Barcode = (raw: string): ParsedGs1Barcode => {
     };
 };
 
-const formatGs1Date = (ai11Date: string): string => {
-    const year = Number(ai11Date.slice(0, 2));
-    const month = ai11Date.slice(2, 4);
-    const day = ai11Date.slice(4, 6);
-    const fullYear = 2000 + year;
+export const parseFirstScanBarcode = (firstBarcodeRaw: string): FirstScanParseResult => {
+    const firstScan = parseGs1Barcode(firstBarcodeRaw);
 
-    return `${fullYear}-${month}-${day}`;
+    if (!firstScan.fields.ai01) {
+        throw new Error("La primera lectura no contiene GTIN en AI 01");
+    }
+
+    return {
+        firstBarcodeRaw: firstScan.normalizedRaw,
+        firstScanFields: firstScan.fields,
+        gtin: firstScan.fields.ai01,
+    };
 };
 
 export const parseDoubleScanReading = (
@@ -110,14 +121,10 @@ export const parseDoubleScanReading = (
     firstBarcodeRaw: string,
     secondBarcodeRaw: string
 ): DoubleScanParseResult => {
-    const firstScan = parseGs1Barcode(firstBarcodeRaw);
+    const resolvedFirstScan = parseFirstScanBarcode(firstBarcodeRaw);
     const secondScan = parseGs1Barcode(secondBarcodeRaw);
 
-    if (!firstScan.fields.ai01) {
-        throw new Error("La primera lectura no contiene GTIN en AI 01");
-    }
-
-    if (firstScan.fields.ai01 !== partConfig.expectedGtin) {
+    if (resolvedFirstScan.gtin !== partConfig.expectedGtin) {
         throw new Error("La primera lectura no coincide con el GTIN esperado para el numero de parte");
     }
 
@@ -153,13 +160,13 @@ export const parseDoubleScanReading = (
     }
 
     return {
-        firstBarcodeRaw: firstScan.normalizedRaw,
+        firstBarcodeRaw: resolvedFirstScan.firstBarcodeRaw,
         secondBarcodeRaw: secondScan.normalizedRaw,
-        firstScanFields: firstScan.fields,
+        firstScanFields: resolvedFirstScan.firstScanFields,
         secondScanFields: secondScan.fields,
-        gtin: firstScan.fields.ai01,
+        gtin: resolvedFirstScan.gtin,
         lot,
-        manufactureDate: formatGs1Date(secondScan.fields.ai11),
+        manufactureDate: secondScan.fields.ai11,
         rulesApplied,
     };
 };

@@ -75,5 +75,6 @@ const partConfigSchema = new Schema<PartConfig>(
 
 partConfigSchema.index({ partNumber: 1 }, { unique: true });
 partConfigSchema.index({ readingMode: 1, isActive: 1, partNumber: 1 });
+partConfigSchema.index({ expectedGtin: 1, readingMode: 1, isActive: 1 });
 
 export const PartConfigModel = model<PartConfig>("PartConfig", partConfigSchema);
