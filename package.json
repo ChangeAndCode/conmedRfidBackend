@@ -8,7 +8,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "render-build": "npm ci && npm run build",
+    "render-build": "npm ci --include=dev && npm run build",
     "start": "node dist/index.js"
   },
   "repository": {
