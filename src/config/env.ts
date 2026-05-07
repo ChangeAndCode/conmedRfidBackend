@@ -18,10 +18,25 @@ const parsePort = (): number => {
     return port;
 };
 
+const defaultFrontendUrls = [
+    "http://localhost:5173",
+    "https://conmedrfidfrontend-1.onrender.com",
+];
+
+const parseFrontendUrls = (): string[] => {
+    const rawOrigins = process.env.FRONTEND_URLS?.trim() || process.env.FRONTEND_URL?.trim() || "";
+    const configuredOrigins = rawOrigins
+        .split(",")
+        .map((origin) => origin.trim())
+        .filter(Boolean);
+
+    return Array.from(new Set([...defaultFrontendUrls, ...configuredOrigins]));
+};
+
 export const env = {
     port: parsePort(),
     mongoUri: getRequiredEnvVar("MONGODB_URI"),
     mongoDbName: process.env.MONGODB_DB_NAME?.trim() || "conmed-rfid",
-    frontendUrl: process.env.FRONTEND_URL?.trim() || "http://localhost:5173",
+    frontendUrls: parseFrontendUrls(),
     authTokenSecret: process.env.AUTH_TOKEN_SECRET?.trim() || "conmed-rfid-dev-secret",
 };

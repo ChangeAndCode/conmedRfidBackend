@@ -12,10 +12,10 @@ import { seedDefaultPartConfigs } from "./services/partConfigService";
 
 const app = express();
 
-const allowedOrigins: string[] = [
-    env.frontendUrl,
+const allowedOrigins: string[] = Array.from(new Set([
+    ...env.frontendUrls,
     "https://conmedrfidbackend.onrender.com",
-];
+]));
 
 const corsOptions = {
     origin: (origin: string | undefined, callback: (error: Error | null, allow?: boolean) => void) => {

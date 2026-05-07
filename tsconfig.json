@@ -9,7 +9,7 @@
     // Environment Settings
     "module": "commonjs",
     "target": "ESNext",
-    "types": [],
+    "types": ["node"],
 
     // Other Outputs
     "sourceMap": true,
