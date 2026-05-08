@@ -7,14 +7,15 @@ import {
     permanentlyDeletePartConfig,
     updatePartConfig,
 } from "../controllers/partConfigController";
+import { setApiAction } from "../middleware/apiRequestLogger";
 
 const partConfigRouter = Router();
 
-partConfigRouter.get("/", listPartConfigsHandler);
-partConfigRouter.get("/:id", getPartConfigById);
-partConfigRouter.post("/", createPartConfig);
-partConfigRouter.patch("/:id", updatePartConfig);
-partConfigRouter.delete("/:id/permanent", permanentlyDeletePartConfig);
-partConfigRouter.delete("/:id", deletePartConfig);
+partConfigRouter.get("/", setApiAction("part_config_list", "Configuraciones de numero de parte listadas"), listPartConfigsHandler);
+partConfigRouter.get("/:id", setApiAction("part_config_get", "Configuracion de numero de parte consultada"), getPartConfigById);
+partConfigRouter.post("/", setApiAction("part_config_create"), createPartConfig);
+partConfigRouter.patch("/:id", setApiAction("part_config_update"), updatePartConfig);
+partConfigRouter.delete("/:id/permanent", setApiAction("part_config_delete_permanent"), permanentlyDeletePartConfig);
+partConfigRouter.delete("/:id", setApiAction("part_config_delete"), deletePartConfig);
 
 export default partConfigRouter;

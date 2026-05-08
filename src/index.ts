@@ -5,6 +5,7 @@ import authRouter from "./routes/authRoutes";
 import { connectToDatabase, disconnectFromDatabase, getDatabaseStatus } from "./config/database";
 import { env } from "./config/env";
 import { logger } from "./config/logger";
+import { apiRequestLogger } from "./middleware/apiRequestLogger";
 import doubleScanReadRouter from "./routes/doubleScanReadRoutes";
 import manualReadRouter from "./routes/manualReadRoutes";
 import partConfigRouter from "./routes/partConfigRoutes";
@@ -46,6 +47,7 @@ app.use(cors(corsOptions));
 
 app.use(express.json({ limit: "100mb" }));
 app.use(express.urlencoded({ extended: true, limit: "100mb" }));
+app.use("/api", apiRequestLogger);
 
 app.get("/", (req, res) => {
     res.send("Sistema RFID en funcionamiento");
