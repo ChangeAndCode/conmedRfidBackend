@@ -1,6 +1,7 @@
 import { Schema, model } from "mongoose";
 
 export const readingModes = ["manual", "single_scan", "double_scan"] as const;
+export const expectedGtinPattern = /^\d{14}$/;
 
 export type ReadingMode = (typeof readingModes)[number];
 
@@ -44,6 +45,12 @@ const partConfigSchema = new Schema<PartConfig>(
         expectedGtin: {
             type: String,
             trim: true,
+            validate: {
+                validator: (value: string | undefined): boolean => {
+                    return value === undefined || expectedGtinPattern.test(value);
+                },
+                message: "El campo expectedGtin debe contener exactamente 14 digitos numericos",
+            },
         },
         filterLabel: {
             type: String,

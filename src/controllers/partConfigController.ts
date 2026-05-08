@@ -1,7 +1,13 @@
 import { Request, Response } from "express";
 import { isValidObjectId } from "mongoose";
 import { listPartConfigs } from "../services/partConfigService";
-import { PartConfig, PartConfigModel, ReadingMode, readingModes } from "../models/partConfig";
+import {
+    expectedGtinPattern,
+    PartConfig,
+    PartConfigModel,
+    ReadingMode,
+    readingModes,
+} from "../models/partConfig";
 import {
     normalizeOptionalBoolean,
     normalizeOptionalPositiveInteger,
@@ -38,6 +44,20 @@ const normalizeReadingMode = (value: unknown, required = false): ReadingMode | u
     }
 
     return normalized as ReadingMode;
+};
+
+const normalizeExpectedGtin = (value: unknown): string | undefined => {
+    const normalized = normalizeOptionalText(value);
+
+    if (!normalized) {
+        return undefined;
+    }
+
+    if (!expectedGtinPattern.test(normalized)) {
+        throw new Error("El campo expectedGtin debe contener exactamente 14 digitos numericos");
+    }
+
+    return normalized;
 };
 
 const validatePartConfig = (config: PartConfig): void => {
@@ -205,7 +225,7 @@ export const createPartConfig = async (
 
         assignStringField(payload, "description", normalizeOptionalText(req.body.description));
         assignUppercaseField(payload, "rfidProgram", normalizeOptionalText(req.body.rfidProgram));
-        assignStringField(payload, "expectedGtin", normalizeOptionalText(req.body.expectedGtin));
+        assignStringField(payload, "expectedGtin", normalizeExpectedGtin(req.body.expectedGtin));
         assignStringField(payload, "filterLabel", normalizeOptionalText(req.body.filterLabel));
         assignNumberField(
             payload,
@@ -286,7 +306,7 @@ export const updatePartConfig = async (
         }
 
         if (hasOwn(req.body, "expectedGtin")) {
-            assignStringField(nextConfig, "expectedGtin", normalizeOptionalText(req.body.expectedGtin));
+            assignStringField(nextConfig, "expectedGtin", normalizeExpectedGtin(req.body.expectedGtin));
         }
 
         if (hasOwn(req.body, "filterLabel")) {
