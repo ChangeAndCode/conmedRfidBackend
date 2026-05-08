@@ -14,6 +14,8 @@ import {
     normalizeOptionalText,
     normalizeRequiredText,
 } from "../utils/requestNormalization";
+import { getActiveGtinByValue } from "../services/gtinService";
+import { getActiveRfidProgramByValue } from "../services/rfidProgramService";
 
 type PartConfigBody = {
     partNumber?: unknown;
@@ -74,6 +76,30 @@ const validatePartConfig = (config: PartConfig): void => {
         }
     }
 
+};
+
+const validatePartConfigCatalogReferences = async (
+    config: PartConfig,
+    options: {
+        validateExpectedGtin: boolean;
+        validateRfidProgram: boolean;
+    }
+): Promise<void> => {
+    if (options.validateExpectedGtin && config.expectedGtin) {
+        const gtin = await getActiveGtinByValue(config.expectedGtin);
+
+        if (!gtin) {
+            throw new Error("El GTIN seleccionado no existe o no esta activo");
+        }
+    }
+
+    if (options.validateRfidProgram && config.rfidProgram) {
+        const rfidProgram = await getActiveRfidProgramByValue(config.rfidProgram);
+
+        if (!rfidProgram) {
+            throw new Error("El RFID program seleccionado no existe o no esta activo");
+        }
+    }
 };
 
 const createBasePartConfig = (partNumber: string, readingMode: ReadingMode, isActive: boolean): PartConfig => ({
@@ -227,6 +253,10 @@ export const createPartConfig = async (
         assignStringField(payload, "notes", normalizeOptionalText(req.body.notes));
 
         validatePartConfig(payload);
+        await validatePartConfigCatalogReferences(payload, {
+            validateExpectedGtin: Boolean(payload.expectedGtin),
+            validateRfidProgram: Boolean(payload.rfidProgram),
+        });
 
         const config = await PartConfigModel.create(payload);
 
@@ -313,6 +343,18 @@ export const updatePartConfig = async (
         }
 
         validatePartConfig(nextConfig);
+        await validatePartConfigCatalogReferences(nextConfig, {
+            validateExpectedGtin: Boolean(nextConfig.expectedGtin) && (
+                hasOwn(req.body, "expectedGtin")
+                || hasOwn(req.body, "readingMode")
+                || (hasOwn(req.body, "isActive") && nextConfig.isActive)
+            ),
+            validateRfidProgram: Boolean(nextConfig.rfidProgram) && (
+                hasOwn(req.body, "rfidProgram")
+                || hasOwn(req.body, "readingMode")
+                || (hasOwn(req.body, "isActive") && nextConfig.isActive)
+            ),
+        });
         existing.set(nextConfig);
         await existing.save();
 

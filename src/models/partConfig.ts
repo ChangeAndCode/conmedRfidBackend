@@ -1,7 +1,8 @@
 import { Schema, model } from "mongoose";
+import { gtinValuePattern } from "../utils/catalogValidation";
 
 export const readingModes = ["manual", "single_scan", "double_scan"] as const;
-export const expectedGtinPattern = /^\d{14}$/;
+export const expectedGtinPattern = gtinValuePattern;
 
 export type ReadingMode = (typeof readingModes)[number];
 

@@ -7,9 +7,13 @@ import { env } from "./config/env";
 import { logger } from "./config/logger";
 import { apiRequestLogger } from "./middleware/apiRequestLogger";
 import doubleScanReadRouter from "./routes/doubleScanReadRoutes";
+import gtinRouter from "./routes/gtinRoutes";
 import manualReadRouter from "./routes/manualReadRoutes";
 import partConfigRouter from "./routes/partConfigRoutes";
+import rfidProgramRouter from "./routes/rfidProgramRoutes";
+import { seedGtinsFromPartConfigs } from "./services/gtinService";
 import { seedDefaultPartConfigs } from "./services/partConfigService";
+import { seedRfidProgramsFromPartConfigs } from "./services/rfidProgramService";
 
 const app = express();
 
@@ -63,6 +67,8 @@ app.get("/health", (req, res) => {
 app.use("/api/manual-reads", manualReadRouter);
 app.use("/api/double-scan-reads", doubleScanReadRouter);
 app.use("/api/part-configs", partConfigRouter);
+app.use("/api/gtins", gtinRouter);
+app.use("/api/rfid-programs", rfidProgramRouter);
 app.use("/api/auth", authRouter);
 
 const bootstrap = async (): Promise<void> => {
@@ -70,6 +76,8 @@ const bootstrap = async (): Promise<void> => {
         logger.info(`El puerto ${env.port} esta disponible`);
         await connectToDatabase();
         await seedDefaultPartConfigs();
+        await seedGtinsFromPartConfigs();
+        await seedRfidProgramsFromPartConfigs();
 
         app.listen(env.port, () => {
             logger.info(`Sistema RFID corriendo en http://localhost:${env.port}`);
