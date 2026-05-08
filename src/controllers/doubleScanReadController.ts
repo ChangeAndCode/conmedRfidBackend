@@ -31,7 +31,6 @@ type PartConfigOption = {
     filterLabel?: string;
     expectedGtin?: string;
     expectedLotLength?: number;
-    lotTrimRight?: number;
 };
 
 const getPartConfigId = (partConfig: { _id?: unknown }): string => {
@@ -54,7 +53,6 @@ const toPartConfigOption = (partConfig: {
     filterLabel?: string;
     expectedGtin?: string;
     expectedLotLength?: number;
-    lotTrimRight?: number;
 }): PartConfigOption => {
     const option: PartConfigOption = {
         id: getPartConfigId(partConfig),
@@ -79,10 +77,6 @@ const toPartConfigOption = (partConfig: {
 
     if (partConfig.expectedLotLength) {
         option.expectedLotLength = partConfig.expectedLotLength;
-    }
-
-    if (partConfig.lotTrimRight) {
-        option.lotTrimRight = partConfig.lotTrimRight;
     }
 
     return option;

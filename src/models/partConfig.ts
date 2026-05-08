@@ -13,12 +13,16 @@ export interface PartConfig {
     expectedGtin?: string;
     filterLabel?: string;
     expectedLotLength?: number;
-    lotTrimRight?: number;
     isActive: boolean;
     notes?: string;
     createdAt?: Date;
     updatedAt?: Date;
 }
+
+const removeLegacyLotTrimRight = (_doc: unknown, ret: Record<string, unknown>): Record<string, unknown> => {
+    delete ret.lotTrimRight;
+    return ret;
+};
 
 const partConfigSchema = new Schema<PartConfig>(
     {
@@ -60,10 +64,6 @@ const partConfigSchema = new Schema<PartConfig>(
             type: Number,
             min: 1,
         },
-        lotTrimRight: {
-            type: Number,
-            min: 1,
-        },
         isActive: {
             type: Boolean,
             default: true,
@@ -77,6 +77,12 @@ const partConfigSchema = new Schema<PartConfig>(
     {
         timestamps: true,
         versionKey: false,
+        toJSON: {
+            transform: removeLegacyLotTrimRight,
+        },
+        toObject: {
+            transform: removeLegacyLotTrimRight,
+        },
     }
 );
 

@@ -3,7 +3,6 @@ const GROUP_SEPARATOR = String.fromCharCode(29);
 export interface DoubleScanValidationConfig {
     expectedGtin: string;
     expectedLotLength: number;
-    lotTrimRight?: number;
 }
 
 type ParsedGs1Fields = {
@@ -142,16 +141,7 @@ export const parseDoubleScanReading = (
         "second_scan_ai10_lot",
     ];
 
-    let lot = secondScan.fields.ai10;
-
-    if (partConfig.lotTrimRight) {
-        if (lot.length <= partConfig.lotTrimRight) {
-            throw new Error("La regla de recorte del lote deja el valor vacio");
-        }
-
-        lot = lot.slice(0, -partConfig.lotTrimRight);
-        rulesApplied.push(`lot_trim_right_${partConfig.lotTrimRight}`);
-    }
+    const lot = secondScan.fields.ai10;
 
     if (lot.length !== partConfig.expectedLotLength) {
         throw new Error(

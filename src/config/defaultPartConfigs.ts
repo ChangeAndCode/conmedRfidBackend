@@ -60,8 +60,7 @@ export const defaultPartConfigs: SeedPartConfig[] = [
         expectedGtin: "10884524001425",
         filterLabel: "P000027957",
         expectedLotLength: 9,
-        lotTrimRight: 4,
         isActive: true,
-        notes: "Requiere dos codigos de barras y recorta 4 digitos del lote",
+        notes: "Requiere dos codigos de barras",
     },
 ];

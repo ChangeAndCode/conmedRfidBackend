@@ -23,7 +23,6 @@ type PartConfigBody = {
     expectedGtin?: unknown;
     filterLabel?: unknown;
     expectedLotLength?: unknown;
-    lotTrimRight?: unknown;
     isActive?: unknown;
     notes?: unknown;
 };
@@ -75,9 +74,6 @@ const validatePartConfig = (config: PartConfig): void => {
         }
     }
 
-    if (config.lotTrimRight && !config.expectedLotLength) {
-        throw new Error("lotTrimRight requiere expectedLotLength");
-    }
 };
 
 const createBasePartConfig = (partNumber: string, readingMode: ReadingMode, isActive: boolean): PartConfig => ({
@@ -105,10 +101,6 @@ const copyOptionalFields = (source: PartConfig, target: PartConfig): void => {
 
     if (source.expectedLotLength) {
         target.expectedLotLength = source.expectedLotLength;
-    }
-
-    if (source.lotTrimRight) {
-        target.lotTrimRight = source.lotTrimRight;
     }
 
     if (source.notes) {
@@ -144,7 +136,7 @@ const assignUppercaseField = (
 
 const assignNumberField = (
     target: PartConfig,
-    field: "expectedLotLength" | "lotTrimRight",
+    field: "expectedLotLength",
     value: number | undefined
 ): void => {
     if (typeof value === "number") {
@@ -232,11 +224,6 @@ export const createPartConfig = async (
             "expectedLotLength",
             normalizeOptionalPositiveInteger(req.body.expectedLotLength, "expectedLotLength")
         );
-        assignNumberField(
-            payload,
-            "lotTrimRight",
-            normalizeOptionalPositiveInteger(req.body.lotTrimRight, "lotTrimRight")
-        );
         assignStringField(payload, "notes", normalizeOptionalText(req.body.notes));
 
         validatePartConfig(payload);
@@ -318,14 +305,6 @@ export const updatePartConfig = async (
                 nextConfig,
                 "expectedLotLength",
                 normalizeOptionalPositiveInteger(req.body.expectedLotLength, "expectedLotLength")
-            );
-        }
-
-        if (hasOwn(req.body, "lotTrimRight")) {
-            assignNumberField(
-                nextConfig,
-                "lotTrimRight",
-                normalizeOptionalPositiveInteger(req.body.lotTrimRight, "lotTrimRight")
             );
         }
 
