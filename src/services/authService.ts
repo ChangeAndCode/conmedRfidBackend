@@ -1,5 +1,5 @@
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import { User, UserRole } from "../models/user";
+import { User, UserRole, userRoles } from "../models/user";
 
 const PASSWORD_SALT_BYTES = 16;
 const PASSWORD_KEY_BYTES = 64;
@@ -16,7 +16,7 @@ type PublicUser = {
     lastLoginAt?: Date;
 };
 
-type AuthTokenPayload = {
+export type AuthTokenPayload = {
     sub: string;
     username: string;
     email: string;
@@ -34,6 +34,15 @@ const toBase64Url = (value: string | Buffer): string => {
         .replace(/\+/g, "-")
         .replace(/\//g, "_")
         .replace(/=+$/g, "");
+};
+
+const fromBase64Url = (value: string): Buffer => {
+    const normalized = value
+        .replace(/-/g, "+")
+        .replace(/_/g, "/");
+    const paddingLength = (4 - (normalized.length % 4)) % 4;
+
+    return Buffer.from(`${normalized}${"=".repeat(paddingLength)}`, "base64");
 };
 
 const getUserId = (user: User & { _id?: unknown }): string => {
@@ -142,4 +151,73 @@ export const createAuthToken = (user: User & { _id?: unknown }, secret: string):
         .replace(/=+$/g, "");
 
     return `${header}.${payload}.${signature}`;
+};
+
+const verifyAuthTokenPayload = (payload: unknown): AuthTokenPayload => {
+    if (typeof payload !== "object" || payload === null) {
+        throw new Error("El token no contiene un payload valido");
+    }
+
+    const { sub, username, email, role, exp } = payload as Partial<AuthTokenPayload>;
+
+    if (typeof sub !== "string" || typeof username !== "string" || typeof email !== "string") {
+        throw new Error("El token no contiene datos de usuario validos");
+    }
+
+    if (typeof exp !== "number" || !Number.isFinite(exp)) {
+        throw new Error("El token no contiene una expiracion valida");
+    }
+
+    if (!userRoles.includes(role as UserRole)) {
+        throw new Error("El token no contiene un rol valido");
+    }
+
+    if (exp <= Math.floor(Date.now() / 1000)) {
+        throw new Error("El token ha expirado");
+    }
+
+    return {
+        sub,
+        username,
+        email,
+        role: role as UserRole,
+        exp,
+    };
+};
+
+export const verifyAuthToken = (token: string, secret: string): AuthTokenPayload => {
+    const [header, payload, signature] = token.split(".");
+
+    if (!header || !payload || !signature) {
+        throw new Error("El token no tiene un formato valido");
+    }
+
+    const expectedSignature = createHmac("sha256", secret)
+        .update(`${header}.${payload}`)
+        .digest("base64")
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=+$/g, "");
+    const signatureBuffer = Buffer.from(signature, "utf-8");
+    const expectedSignatureBuffer = Buffer.from(expectedSignature, "utf-8");
+
+    if (signatureBuffer.length !== expectedSignatureBuffer.length) {
+        throw new Error("La firma del token no es valida");
+    }
+
+    if (!timingSafeEqual(signatureBuffer, expectedSignatureBuffer)) {
+        throw new Error("La firma del token no es valida");
+    }
+
+    const payloadJson = fromBase64Url(payload).toString("utf-8");
+
+    try {
+        return verifyAuthTokenPayload(JSON.parse(payloadJson));
+    } catch (error) {
+        if (error instanceof Error) {
+            throw error;
+        }
+
+        throw new Error("No se pudo validar el token");
+    }
 };

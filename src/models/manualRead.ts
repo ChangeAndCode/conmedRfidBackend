@@ -5,12 +5,13 @@ export const manualReadStatuses = ["captured", "programmed", "verified"] as cons
 export type ManualReadStatus = (typeof manualReadStatuses)[number];
 
 export interface ManualRead {
+    serviceOrderId?: string;
     serviceOrder?: string;
     partNumber: string;
     rfidProgram?: string;
     gtin?: string;
-    lot: string;
-    manufactureDate: string;
+    lot?: string;
+    manufactureDate?: string;
     filterLabel?: string;
     rawReference?: string;
     notes?: string;
@@ -23,6 +24,10 @@ export interface ManualRead {
 
 const manualReadSchema = new Schema<ManualRead>(
     {
+        serviceOrderId: {
+            type: String,
+            trim: true,
+        },
         serviceOrder: {
             type: String,
             trim: true,
@@ -44,12 +49,10 @@ const manualReadSchema = new Schema<ManualRead>(
         },
         lot: {
             type: String,
-            required: true,
             trim: true,
         },
         manufactureDate: {
             type: String,
-            required: true,
             trim: true,
         },
         filterLabel: {
@@ -89,5 +92,6 @@ const manualReadSchema = new Schema<ManualRead>(
 
 manualReadSchema.index({ partNumber: 1, lot: 1, manufactureDate: 1 });
 manualReadSchema.index({ serviceOrder: 1, createdAt: -1 });
+manualReadSchema.index({ serviceOrderId: 1, createdAt: -1 });
 
 export const ManualReadModel = model<ManualRead>("ManualRead", manualReadSchema);

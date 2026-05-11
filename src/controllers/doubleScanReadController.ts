@@ -8,9 +8,11 @@ import {
     validateDoubleScanPartConfig,
 } from "../services/partConfigService";
 import { parseDoubleScanReading, parseFirstScanBarcode } from "../services/gs1Parser";
+import { validateDoubleScanServiceOrderForProgramming } from "../services/serviceOrderService";
 import { normalizeOptionalText, normalizeRequiredText } from "../utils/requestNormalization";
 
 type CreateDoubleScanReadBody = {
+    serviceOrderId?: unknown;
     partConfigId?: unknown;
     serviceOrder?: unknown;
     firstBarcodeRaw?: unknown;
@@ -142,12 +144,16 @@ export const createDoubleScanRead = async (
     res: Response
 ): Promise<void> => {
     try {
+        const serviceOrderId = normalizeRequiredText(req.body.serviceOrderId, "serviceOrderId");
         const partConfigId = normalizeRequiredText(req.body.partConfigId, "partConfigId");
         const firstBarcodeRaw = normalizeRequiredText(req.body.firstBarcodeRaw, "firstBarcodeRaw");
         const secondBarcodeRaw = normalizeRequiredText(req.body.secondBarcodeRaw, "secondBarcodeRaw");
-        const serviceOrder = normalizeOptionalText(req.body.serviceOrder);
         const notes = normalizeOptionalText(req.body.notes);
         const createdBy = normalizeOptionalText(req.body.createdBy);
+
+        if (!isValidObjectId(serviceOrderId)) {
+            throw new Error("El serviceOrderId no es valido");
+        }
 
         if (!isValidObjectId(partConfigId)) {
             throw new Error("El partConfigId no es valido");
@@ -161,7 +167,12 @@ export const createDoubleScanRead = async (
 
         const resolvedPartConfig = validateDoubleScanPartConfig(partConfig);
         const parsedReading = parseDoubleScanReading(resolvedPartConfig, firstBarcodeRaw, secondBarcodeRaw);
+        const serviceOrder = await validateDoubleScanServiceOrderForProgramming(serviceOrderId, {
+            gtin: parsedReading.gtin,
+            rfidProgram: resolvedPartConfig.rfidProgram,
+        });
         const payload: DoubleScanRead = {
+            serviceOrderId,
             partConfigId,
             partNumber: resolvedPartConfig.partNumber,
             rfidProgram: resolvedPartConfig.rfidProgram,
@@ -177,9 +188,7 @@ export const createDoubleScanRead = async (
             status: "captured",
         };
 
-        if (serviceOrder) {
-            payload.serviceOrder = serviceOrder;
-        }
+        payload.serviceOrder = serviceOrder.folio;
 
         if (resolvedPartConfig.filterLabel) {
             payload.filterLabel = resolvedPartConfig.filterLabel;
@@ -210,6 +219,7 @@ export const listDoubleScanReads = async (req: Request, res: Response): Promise<
     const status = normalizeOptionalText(req.query.status);
     const partNumber = normalizeOptionalText(req.query.partNumber);
     const serviceOrder = normalizeOptionalText(req.query.serviceOrder);
+    const serviceOrderId = normalizeOptionalText(req.query.serviceOrderId);
 
     if (status && doubleScanReadStatuses.includes(status as (typeof doubleScanReadStatuses)[number])) {
         filters.status = status;
@@ -221,6 +231,10 @@ export const listDoubleScanReads = async (req: Request, res: Response): Promise<
 
     if (serviceOrder) {
         filters.serviceOrder = serviceOrder;
+    }
+
+    if (serviceOrderId) {
+        filters.serviceOrderId = serviceOrderId;
     }
 
     const doubleScanReads = await DoubleScanReadModel.find(filters).sort({ createdAt: -1 }).limit(100);

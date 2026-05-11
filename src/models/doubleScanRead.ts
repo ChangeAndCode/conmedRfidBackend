@@ -11,6 +11,7 @@ interface BarcodeFields {
 }
 
 export interface DoubleScanRead {
+    serviceOrderId?: string;
     partConfigId: string;
     serviceOrder?: string;
     partNumber: string;
@@ -54,6 +55,11 @@ const barcodeFieldsSchema = new Schema<BarcodeFields>(
 
 const doubleScanReadSchema = new Schema<DoubleScanRead>(
     {
+        serviceOrderId: {
+            type: String,
+            required: true,
+            trim: true,
+        },
         partConfigId: {
             type: String,
             required: true,
@@ -146,6 +152,7 @@ const doubleScanReadSchema = new Schema<DoubleScanRead>(
 
 doubleScanReadSchema.index({ partNumber: 1, gtin: 1, lot: 1, manufactureDate: 1 });
 doubleScanReadSchema.index({ serviceOrder: 1, createdAt: -1 });
+doubleScanReadSchema.index({ serviceOrderId: 1, createdAt: -1 });
 doubleScanReadSchema.index({ partConfigId: 1, createdAt: -1 });
 
 export const DoubleScanReadModel = model<DoubleScanRead>("DoubleScanRead", doubleScanReadSchema);

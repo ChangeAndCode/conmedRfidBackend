@@ -2,9 +2,11 @@ import { Request, Response } from "express";
 import { isValidObjectId } from "mongoose";
 import { ManualRead, ManualReadModel, manualReadStatuses } from "../models/manualRead";
 import { getPartConfigByPartNumber } from "../services/partConfigService";
+import { validateManualServiceOrderForProgramming } from "../services/serviceOrderService";
 import { normalizeOptionalText, normalizeRequiredText } from "../utils/requestNormalization";
 
 type CreateManualReadBody = {
+    serviceOrderId?: unknown;
     serviceOrder?: unknown;
     partNumber?: unknown;
     rfidProgram?: unknown;
@@ -22,6 +24,7 @@ export const createManualRead = async (
     res: Response
 ): Promise<void> => {
     try {
+        const serviceOrderId = normalizeRequiredText(req.body.serviceOrderId, "serviceOrderId");
         const partNumber = normalizeRequiredText(req.body.partNumber, "partNumber").toUpperCase();
         const partConfig = await getPartConfigByPartNumber(partNumber, "manual", true);
 
@@ -30,14 +33,14 @@ export const createManualRead = async (
         }
 
         const payload: ManualRead = {
+            serviceOrderId,
             partNumber,
-            lot: normalizeRequiredText(req.body.lot, "lot"),
-            manufactureDate: normalizeRequiredText(req.body.manufactureDate, "manufactureDate"),
             inputMethod: "manual",
             status: "captured",
         };
 
-        const serviceOrder = normalizeOptionalText(req.body.serviceOrder);
+        const lot = normalizeOptionalText(req.body.lot);
+        const manufactureDate = normalizeOptionalText(req.body.manufactureDate);
         const requestRfidProgram = normalizeOptionalText(req.body.rfidProgram)?.toUpperCase();
         const requestGtin = normalizeOptionalText(req.body.gtin);
         const requestFilterLabel = normalizeOptionalText(req.body.filterLabel);
@@ -48,8 +51,19 @@ export const createManualRead = async (
         const gtin = partConfig.expectedGtin ?? requestGtin;
         const filterLabel = partConfig.filterLabel ?? requestFilterLabel;
 
-        if (serviceOrder) {
-            payload.serviceOrder = serviceOrder;
+        const serviceOrder = await validateManualServiceOrderForProgramming(serviceOrderId, {
+            partNumber,
+            rfidProgram,
+        });
+
+        payload.serviceOrder = serviceOrder.folio;
+
+        if (lot) {
+            payload.lot = lot;
+        }
+
+        if (manufactureDate) {
+            payload.manufactureDate = manufactureDate;
         }
 
         if (rfidProgram) {
@@ -93,6 +107,7 @@ export const listManualReads = async (req: Request, res: Response): Promise<void
     const status = normalizeOptionalText(req.query.status);
     const partNumber = normalizeOptionalText(req.query.partNumber);
     const serviceOrder = normalizeOptionalText(req.query.serviceOrder);
+    const serviceOrderId = normalizeOptionalText(req.query.serviceOrderId);
 
     if (status && manualReadStatuses.includes(status as (typeof manualReadStatuses)[number])) {
         filters.status = status;
@@ -104,6 +119,10 @@ export const listManualReads = async (req: Request, res: Response): Promise<void
 
     if (serviceOrder) {
         filters.serviceOrder = serviceOrder;
+    }
+
+    if (serviceOrderId) {
+        filters.serviceOrderId = serviceOrderId;
     }
 
     const manualReads = await ManualReadModel.find(filters).sort({ createdAt: -1 }).limit(100);

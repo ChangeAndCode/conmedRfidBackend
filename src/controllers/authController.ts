@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { env } from "../config/env";
-import { UserModel } from "../models/user";
+import { UserModel, UserRole, userRoles } from "../models/user";
 import {
     createAuthToken,
     createPasswordHash,
@@ -17,6 +17,7 @@ type RegisterBody = {
     username?: unknown;
     email?: unknown;
     password?: unknown;
+    role?: unknown;
 };
 
 type LoginBody = {
@@ -52,11 +53,58 @@ const getDuplicateField = (error: unknown): string | undefined => {
     return undefined;
 };
 
+const normalizeRole = (value: unknown, required = false): UserRole | undefined => {
+    if (value === undefined || value === null) {
+        if (required) {
+            throw new Error("El campo role es obligatorio");
+        }
+
+        return undefined;
+    }
+
+    if (typeof value !== "string") {
+        throw new Error("El campo role no es valido");
+    }
+
+    const normalized = value.trim().toLowerCase();
+
+    if (!userRoles.includes(normalized as UserRole)) {
+        throw new Error("El campo role no es valido");
+    }
+
+    return normalized as UserRole;
+};
+
+const getCurrentUser = async (req: Pick<Request, "authUser">) => {
+    if (!req.authUser?.sub) {
+        return null;
+    }
+
+    return UserModel.findOne({
+        _id: req.authUser.sub,
+        isActive: true,
+    });
+};
+
 export const registerUser = async (
     req: Request<unknown, unknown, RegisterBody>,
     res: Response
 ): Promise<void> => {
     try {
+        const usersCount = await UserModel.countDocuments();
+        const requestedRole = normalizeRole(req.body.role) ?? "admin";
+
+        if (usersCount > 0) {
+            const currentUser = await getCurrentUser(req);
+
+            if (!currentUser || currentUser.role !== "admin") {
+                res.status(403).json({
+                    message: "Solo un administrador autenticado puede crear usuarios",
+                });
+                return;
+            }
+        }
+
         const username = normalizeRequiredText(req.body.username, "username");
         const email = normalizeEmail(normalizeRequiredText(req.body.email, "email"));
         const password = normalizeRequiredText(req.body.password, "password");
@@ -69,7 +117,7 @@ export const registerUser = async (
             username,
             email,
             passwordHash: createPasswordHash(password),
-            role: "admin",
+            role: usersCount === 0 ? "admin" : requestedRole,
             isActive: true,
         });
 
@@ -95,6 +143,21 @@ export const registerUser = async (
         const message = error instanceof Error ? error.message : "No se pudo registrar el usuario";
         res.status(400).json({ message });
     }
+};
+
+export const getAuthenticatedProfile = async (req: Request, res: Response): Promise<void> => {
+    const currentUser = await getCurrentUser(req);
+
+    if (!currentUser) {
+        res.status(401).json({ message: "No se encontro una sesion valida" });
+        return;
+    }
+
+    res.json({
+        data: {
+            user: toPublicUser(currentUser),
+        },
+    });
 };
 
 export const loginUser = async (

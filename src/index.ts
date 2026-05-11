@@ -11,6 +11,7 @@ import gtinRouter from "./routes/gtinRoutes";
 import manualReadRouter from "./routes/manualReadRoutes";
 import partConfigRouter from "./routes/partConfigRoutes";
 import rfidProgramRouter from "./routes/rfidProgramRoutes";
+import serviceOrderRouter from "./routes/serviceOrderRoutes";
 import { seedGtinsFromPartConfigs } from "./services/gtinService";
 import { seedDefaultPartConfigs } from "./services/partConfigService";
 import { seedRfidProgramsFromPartConfigs } from "./services/rfidProgramService";
@@ -69,6 +70,7 @@ app.use("/api/double-scan-reads", doubleScanReadRouter);
 app.use("/api/part-configs", partConfigRouter);
 app.use("/api/gtins", gtinRouter);
 app.use("/api/rfid-programs", rfidProgramRouter);
+app.use("/api/service-orders", serviceOrderRouter);
 app.use("/api/auth", authRouter);
 
 const bootstrap = async (): Promise<void> => {

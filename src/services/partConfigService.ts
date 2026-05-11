@@ -60,6 +60,22 @@ export const listDoubleScanPartConfigsByGtin = async (expectedGtin: string): Pro
     }).sort({ partNumber: 1 });
 };
 
+export const listActivePartConfigsByExpectedGtin = async (
+    expectedGtin: string,
+    readingMode?: ReadingMode
+): Promise<PartConfig[]> => {
+    const query: Record<string, string | boolean> = {
+        expectedGtin,
+        isActive: true,
+    };
+
+    if (readingMode) {
+        query.readingMode = readingMode;
+    }
+
+    return PartConfigModel.find(query).sort({ partNumber: 1 });
+};
+
 export const getActiveDoubleScanPartConfigById = async (id: string): Promise<PartConfig | null> => {
     return PartConfigModel.findOne({
         _id: id,
