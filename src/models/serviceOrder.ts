@@ -2,7 +2,7 @@ import { Schema, model } from "mongoose";
 import { gtinValuePattern, rfidProgramMaxLength } from "../utils/catalogValidation";
 
 export const serviceOrderStatuses = ["open", "blocked", "closed"] as const;
-export const serviceOrderReadingModes = ["manual", "double_scan"] as const;
+export const serviceOrderReadingModes = ["manual", "single_scan", "double_scan"] as const;
 
 export type ServiceOrderStatus = (typeof serviceOrderStatuses)[number];
 export type ServiceOrderReadingMode = (typeof serviceOrderReadingModes)[number];

@@ -2,7 +2,8 @@ import { Request, Response } from "express";
 import { isValidObjectId } from "mongoose";
 import { ManualRead, ManualReadModel, manualReadStatuses } from "../models/manualRead";
 import { getPartConfigByPartNumber } from "../services/partConfigService";
-import { validateManualServiceOrderForProgramming } from "../services/serviceOrderService";
+import { createProgrammingRecordFromManualRead } from "../services/programmingRecordService";
+import { getDocumentId, validateManualServiceOrderForProgramming } from "../services/serviceOrderService";
 import { normalizeOptionalText, normalizeRequiredText } from "../utils/requestNormalization";
 
 type CreateManualReadBody = {
@@ -91,6 +92,13 @@ export const createManualRead = async (
         }
 
         const manualRead = await ManualReadModel.create(payload);
+
+        try {
+            await createProgrammingRecordFromManualRead(manualRead as typeof manualRead & { _id?: unknown });
+        } catch (error) {
+            await ManualReadModel.findByIdAndDelete(getDocumentId(manualRead as typeof manualRead & { _id?: unknown }));
+            throw error;
+        }
 
         res.status(201).json({
             message: "Lectura manual registrada",

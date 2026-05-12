@@ -7,8 +7,12 @@ import {
     listPartConfigs,
     validateDoubleScanPartConfig,
 } from "../services/partConfigService";
+import { createProgrammingRecordFromDoubleScanRead } from "../services/programmingRecordService";
 import { parseDoubleScanReading, parseFirstScanBarcode } from "../services/gs1Parser";
-import { validateDoubleScanServiceOrderForProgramming } from "../services/serviceOrderService";
+import {
+    getDocumentId,
+    validateDoubleScanServiceOrderForProgramming,
+} from "../services/serviceOrderService";
 import { normalizeOptionalText, normalizeRequiredText } from "../utils/requestNormalization";
 
 type CreateDoubleScanReadBody = {
@@ -203,6 +207,15 @@ export const createDoubleScanRead = async (
         }
 
         const doubleScanRead = await DoubleScanReadModel.create(payload);
+
+        try {
+            await createProgrammingRecordFromDoubleScanRead(doubleScanRead as typeof doubleScanRead & { _id?: unknown });
+        } catch (error) {
+            await DoubleScanReadModel.findByIdAndDelete(
+                getDocumentId(doubleScanRead as typeof doubleScanRead & { _id?: unknown })
+            );
+            throw error;
+        }
 
         res.status(201).json({
             message: "Lectura doble registrada",

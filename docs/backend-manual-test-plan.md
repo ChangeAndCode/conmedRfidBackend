@@ -15,6 +15,7 @@ $baseUrl = "http://localhost:3000/api"
 $adminToken = ""
 $supervisorToken = ""
 $manualServiceOrderId = ""
+$singleScanServiceOrderId = ""
 $doubleServiceOrderId = ""
 $manualChangeRequestId = ""
 $doubleChangeRequestId = ""
@@ -254,6 +255,37 @@ Resultado esperado:
 - guarda `partNumber = EMVS353`
 - no requiere `gtin`
 
+## Paso 7.1 Crear orden single scan con supervisor
+
+Usa un `partNumber` configurado como `single_scan`. Si todavia no existe uno, crea antes una `part-config`
+activa con `readingMode = single_scan`.
+
+```powershell
+$singleScanServiceOrderBody = @{
+  folio = "SO-SGL-001"
+  readingMode = "single_scan"
+  partNumber = "SEA3700-SGL"
+  quantity = 25
+  notes = "orden single scan de prueba"
+} | ConvertTo-Json
+
+$singleScanServiceOrderResponse = Invoke-RestMethod -Method Post `
+  -Uri "$baseUrl/service-orders" `
+  -Headers @{ Authorization = "Bearer $supervisorToken" } `
+  -ContentType "application/json" `
+  -Body $singleScanServiceOrderBody
+
+$singleScanServiceOrderId = $singleScanServiceOrderResponse.data._id
+$singleScanServiceOrderId
+```
+
+Resultado esperado:
+
+- responde `201`
+- guarda `readingMode = single_scan`
+- guarda el `partNumber` configurado
+- si la `part-config` single scan tiene `rfidProgram`, el backend puede heredarlo
+
 ## Paso 8. Crear orden de doble codigo con supervisor
 
 ```powershell
@@ -297,6 +329,18 @@ Resultado esperado:
 - responde `200`
 - regresa la orden `SO-MAN-001`
 
+### 9.1.1 Resolver orden single scan por numero de parte
+
+```powershell
+Invoke-RestMethod -Method Get `
+  -Uri "$baseUrl/service-orders/resolve-by-part-number?partNumber=SEA3700-SGL&readingMode=single_scan"
+```
+
+Resultado esperado:
+
+- responde `200`
+- regresa la orden `SO-SGL-001`
+
 ### 9.2 Resolver orden doble por GTIN
 
 ```powershell
@@ -323,7 +367,102 @@ Resultado esperado:
 - responde `200`
 - regresa solo la opcion del `partNumber` manual configurado
 
-### 10.2 Orden de doble codigo
+### 10.1.1 Orden single scan
+
+```powershell
+Invoke-RestMethod -Method Get `
+  -Uri "$baseUrl/service-orders/$singleScanServiceOrderId/part-config-options"
+```
+
+Resultado esperado:
+
+- responde `200`
+- regresa solo la opcion del `partNumber` single scan configurado
+
+## Paso 10.2 Resolver lectura single scan por codigo GS1
+
+Codigo GS1 de ejemplo:
+
+- `0120845854081720112209011020220`
+- AI `01` => GTIN `20845854081720`
+- AI `11` => fecha `220901`
+- AI `10` => lote `20220`
+
+```powershell
+$singleScanResolveBody = @{
+  rawScan = "0120845854081720112209011020220"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post `
+  -Uri "$baseUrl/single-scan-reads/resolve" `
+  -ContentType "application/json" `
+  -Body $singleScanResolveBody
+```
+
+Resultado esperado:
+
+- responde `200`
+- regresa `gtin`, `lot` y `manufactureDate` parseados desde el GS1
+- regresa `matchingServiceOrders`
+- si hay varias ordenes `single_scan` abiertas con el mismo `GTIN`, todas deben venir en la respuesta
+
+### 10.2.1 Resolver ordenes single scan abiertas por GTIN
+
+```powershell
+Invoke-RestMethod -Method Get `
+  -Uri "$baseUrl/service-orders/resolve-by-gtin?gtin=20845854081720&readingMode=single_scan"
+```
+
+Resultado esperado:
+
+- responde `200`
+- regresa solo ordenes `single_scan` abiertas para ese `GTIN`
+
+### 10.2.2 Registrar lectura single scan ligada a orden single scan
+
+```powershell
+$singleScanReadBody = @{
+  serviceOrderId = $singleScanServiceOrderId
+  partNumber = "SEA3700-SGL"
+  rawScan = "0120845854081720112209011020220"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post `
+  -Uri "$baseUrl/single-scan-reads" `
+  -ContentType "application/json" `
+  -Body $singleScanReadBody
+```
+
+Resultado esperado:
+
+- responde `201`
+- guarda `serviceOrderId`
+- guarda el `folio` de la orden en `serviceOrder`
+- guarda `readingMode = single_scan` en la orden relacionada
+- toma `GTIN`, `lote` y `fecha de manufactura` desde el `rawScan`
+- si la `part-config` single scan tiene `rfidProgram`, `expectedGtin` o `filterLabel`, el backend los hereda
+
+### 10.2.3 Caso negativo single scan
+
+```powershell
+$singleScanReadBodyInvalid = @{
+  serviceOrderId = $singleScanServiceOrderId
+  partNumber = "A84962"
+  rawScan = "0120845854081720112209011020220"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post `
+  -Uri "$baseUrl/single-scan-reads" `
+  -ContentType "application/json" `
+  -Body $singleScanReadBodyInvalid
+```
+
+Resultado esperado:
+
+- responde `400`
+- indica que el numero de parte no esta configurado para single scan o no coincide con la orden
+
+### 10.3 Orden de doble codigo
 
 ```powershell
 $partConfigOptions = Invoke-RestMethod -Method Get `

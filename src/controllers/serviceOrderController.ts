@@ -16,8 +16,10 @@ import {
     getDocumentId,
     getServiceOrderById,
     hasPendingServiceOrderChangeRequest,
+    GtinBasedServiceOrderReadingMode,
     listOpenServiceOrdersByGtin,
     listOpenServiceOrdersByPartNumber,
+    PartNumberBasedServiceOrderReadingMode,
     listServiceOrders,
     validateServiceOrderCatalogReferences,
 } from "../services/serviceOrderService";
@@ -82,6 +84,38 @@ const normalizeServiceOrderReadingMode = (
     }
 
     return normalized as ServiceOrderReadingMode;
+};
+
+const normalizePartNumberResolutionReadingMode = (
+    value: unknown
+): PartNumberBasedServiceOrderReadingMode | undefined => {
+    const normalized = normalizeOptionalText(value)?.toLowerCase();
+
+    if (!normalized) {
+        return undefined;
+    }
+
+    if (normalized !== "manual" && normalized !== "single_scan") {
+        throw new Error("El campo readingMode solo permite manual o single_scan en esta consulta");
+    }
+
+    return normalized as PartNumberBasedServiceOrderReadingMode;
+};
+
+const normalizeGtinResolutionReadingMode = (
+    value: unknown
+): GtinBasedServiceOrderReadingMode | undefined => {
+    const normalized = normalizeOptionalText(value)?.toLowerCase();
+
+    if (!normalized) {
+        return undefined;
+    }
+
+    if (normalized !== "double_scan" && normalized !== "single_scan") {
+        throw new Error("El campo readingMode solo permite double_scan o single_scan en esta consulta");
+    }
+
+    return normalized as GtinBasedServiceOrderReadingMode;
 };
 
 const normalizeGtin = (value: unknown, required = false): string | undefined => {
@@ -404,7 +438,8 @@ export const updateServiceOrder = async (
 export const listOpenServiceOrdersByGtinHandler = async (req: Request, res: Response): Promise<void> => {
     try {
         const gtin = normalizeGtin(req.query.gtin, true) as string;
-        const serviceOrders = await listOpenServiceOrdersByGtin(gtin);
+        const readingMode = normalizeGtinResolutionReadingMode(req.query.readingMode) ?? "double_scan";
+        const serviceOrders = await listOpenServiceOrdersByGtin(gtin, readingMode);
 
         res.json({
             count: serviceOrders.length,
@@ -419,7 +454,8 @@ export const listOpenServiceOrdersByGtinHandler = async (req: Request, res: Resp
 export const listOpenServiceOrdersByPartNumberHandler = async (req: Request, res: Response): Promise<void> => {
     try {
         const partNumber = normalizePartNumber(req.query.partNumber, true) as string;
-        const serviceOrders = await listOpenServiceOrdersByPartNumber(partNumber);
+        const readingMode = normalizePartNumberResolutionReadingMode(req.query.readingMode) ?? "manual";
+        const serviceOrders = await listOpenServiceOrdersByPartNumber(partNumber, readingMode);
 
         res.json({
             count: serviceOrders.length,
@@ -478,13 +514,13 @@ export const listServiceOrderPartConfigOptions = async (
             return;
         }
 
-        if (serviceOrder.readingMode === "manual") {
+        if (serviceOrder.readingMode === "manual" || serviceOrder.readingMode === "single_scan") {
             if (!serviceOrder.partNumber) {
                 res.json({ count: 0, data: [] });
                 return;
             }
 
-            const partConfig = await getPartConfigByPartNumber(serviceOrder.partNumber, "manual", true);
+            const partConfig = await getPartConfigByPartNumber(serviceOrder.partNumber, serviceOrder.readingMode, true);
 
             if (!partConfig) {
                 res.json({ count: 0, data: [] });

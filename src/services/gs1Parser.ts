@@ -5,10 +5,20 @@ export interface DoubleScanValidationConfig {
     expectedLotLength: number;
 }
 
+export interface SingleScanValidationConfig {
+    expectedGtin?: string;
+    expectedLotLength?: number;
+}
+
 type ParsedGs1Fields = {
     ai01?: string;
     ai10?: string;
     ai11?: string;
+    ai241?: string;
+};
+
+type ParseGs1BarcodeOptions = {
+    expectedLotLength?: number;
 };
 
 export interface ParsedGs1Barcode {
@@ -34,11 +44,57 @@ export interface FirstScanParseResult {
     gtin: string;
 }
 
+export interface SingleScanParseResult {
+    rawScan: string;
+    scanFields: ParsedGs1Fields;
+    gtin: string;
+    lot: string;
+    manufactureDate: string;
+    rulesApplied: string[];
+}
+
 const normalizeScanValue = (raw: string): string => {
     return raw.replace(/[\r\n\t]/g, "").trim();
 };
 
-const parseGs1Barcode = (raw: string): ParsedGs1Barcode => {
+const resolveVariableLengthField = (
+    normalizedRaw: string,
+    valueStart: number,
+    options: ParseGs1BarcodeOptions = {}
+): { value: string; nextCursor: number } => {
+    const separatorIndex = normalizedRaw.indexOf(GROUP_SEPARATOR, valueStart);
+
+    if (separatorIndex !== -1) {
+        return {
+            value: normalizedRaw.slice(valueStart, separatorIndex),
+            nextCursor: separatorIndex + 1,
+        };
+    }
+
+    if (options.expectedLotLength) {
+        const lotEnd = valueStart + options.expectedLotLength;
+        return {
+            value: normalizedRaw.slice(valueStart, lotEnd),
+            nextCursor: lotEnd,
+        };
+    }
+
+    const nextAi241Index = normalizedRaw.indexOf("241", valueStart + 1);
+
+    if (nextAi241Index !== -1) {
+        return {
+            value: normalizedRaw.slice(valueStart, nextAi241Index),
+            nextCursor: nextAi241Index,
+        };
+    }
+
+    return {
+        value: normalizedRaw.slice(valueStart),
+        nextCursor: normalizedRaw.length,
+    };
+};
+
+const parseGs1Barcode = (raw: string, options: ParseGs1BarcodeOptions = {}): ParsedGs1Barcode => {
     const normalizedRaw = normalizeScanValue(raw);
     const fields: ParsedGs1Fields = {};
     let cursor = 0;
@@ -46,6 +102,24 @@ const parseGs1Barcode = (raw: string): ParsedGs1Barcode => {
     while (cursor < normalizedRaw.length) {
         if (normalizedRaw[cursor] === GROUP_SEPARATOR) {
             cursor += 1;
+            continue;
+        }
+
+        const ai3 = normalizedRaw.slice(cursor, cursor + 3);
+
+        if (ai3 === "241") {
+            const valueStart = cursor + 3;
+            const separatorIndex = normalizedRaw.indexOf(GROUP_SEPARATOR, valueStart);
+            const value = separatorIndex === -1
+                ? normalizedRaw.slice(valueStart)
+                : normalizedRaw.slice(valueStart, separatorIndex);
+
+            if (!value) {
+                throw new Error("El codigo GS1 no contiene un identificador valido en AI 241");
+            }
+
+            fields.ai241 = value;
+            cursor = separatorIndex === -1 ? normalizedRaw.length : separatorIndex + 1;
             continue;
         }
 
@@ -77,17 +151,15 @@ const parseGs1Barcode = (raw: string): ParsedGs1Barcode => {
 
         if (ai === "10") {
             const lotStart = cursor + 2;
-            const separatorIndex = normalizedRaw.indexOf(GROUP_SEPARATOR, lotStart);
-            const value = separatorIndex === -1
-                ? normalizedRaw.slice(lotStart)
-                : normalizedRaw.slice(lotStart, separatorIndex);
+            const resolvedLot = resolveVariableLengthField(normalizedRaw, lotStart, options);
+            const value = resolvedLot.value;
 
             if (!value) {
                 throw new Error("El codigo GS1 no contiene un lote valido en AI 10");
             }
 
             fields.ai10 = value;
-            cursor = separatorIndex === -1 ? normalizedRaw.length : separatorIndex + 1;
+            cursor = resolvedLot.nextCursor;
             continue;
         }
 
@@ -121,7 +193,9 @@ export const parseDoubleScanReading = (
     secondBarcodeRaw: string
 ): DoubleScanParseResult => {
     const resolvedFirstScan = parseFirstScanBarcode(firstBarcodeRaw);
-    const secondScan = parseGs1Barcode(secondBarcodeRaw);
+    const secondScan = parseGs1Barcode(secondBarcodeRaw, partConfig.expectedLotLength
+        ? { expectedLotLength: partConfig.expectedLotLength }
+        : {});
 
     if (resolvedFirstScan.gtin !== partConfig.expectedGtin) {
         throw new Error("La primera lectura no coincide con el GTIN esperado para el numero de parte");
@@ -158,5 +232,52 @@ export const parseDoubleScanReading = (
         lot,
         manufactureDate: secondScan.fields.ai11,
         rulesApplied,
+    };
+};
+
+export const parseSingleScanReading = (
+    rawScan: string,
+    validationConfig: SingleScanValidationConfig = {}
+): SingleScanParseResult => {
+    const scan = parseGs1Barcode(rawScan, validationConfig.expectedLotLength
+        ? { expectedLotLength: validationConfig.expectedLotLength }
+        : {});
+
+    if (!scan.fields.ai01) {
+        throw new Error("La lectura single scan no contiene GTIN en AI 01");
+    }
+
+    if (!scan.fields.ai11) {
+        throw new Error("La lectura single scan no contiene fecha de manufactura en AI 11");
+    }
+
+    if (!scan.fields.ai10) {
+        throw new Error("La lectura single scan no contiene lote en AI 10");
+    }
+
+    if (validationConfig.expectedGtin && scan.fields.ai01 !== validationConfig.expectedGtin) {
+        throw new Error("La lectura single scan no coincide con el GTIN esperado para el numero de parte");
+    }
+
+    if (
+        validationConfig.expectedLotLength
+        && scan.fields.ai10.length !== validationConfig.expectedLotLength
+    ) {
+        throw new Error(
+            `El lote obtenido no cumple la longitud esperada de ${validationConfig.expectedLotLength} caracteres`
+        );
+    }
+
+    return {
+        rawScan: scan.normalizedRaw,
+        scanFields: scan.fields,
+        gtin: scan.fields.ai01,
+        lot: scan.fields.ai10,
+        manufactureDate: scan.fields.ai11,
+        rulesApplied: [
+            "single_scan_ai01_gtin",
+            "single_scan_ai11_manufacture_date",
+            "single_scan_ai10_lot",
+        ],
     };
 };

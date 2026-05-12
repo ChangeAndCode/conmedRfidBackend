@@ -1,7 +1,7 @@
 import { isValidObjectId } from "mongoose";
 import { getActiveGtinByValue } from "./gtinService";
 import { getActiveRfidProgramByValue } from "./rfidProgramService";
-import { getPartConfigByPartNumber } from "./partConfigService";
+import { getPartConfigByPartNumber, listActivePartConfigsByExpectedGtin } from "./partConfigService";
 import {
     ServiceOrder,
     ServiceOrderReadingMode,
@@ -9,6 +9,9 @@ import {
     ServiceOrderStatus,
 } from "../models/serviceOrder";
 import { ServiceOrderChangeRequestModel } from "../models/serviceOrderChangeRequest";
+
+export type PartNumberBasedServiceOrderReadingMode = Extract<ServiceOrderReadingMode, "manual" | "single_scan">;
+export type GtinBasedServiceOrderReadingMode = Extract<ServiceOrderReadingMode, "single_scan" | "double_scan">;
 
 type ServiceOrderFilters = {
     folio?: string;
@@ -26,6 +29,10 @@ type DoubleScanServiceOrderReadingMatch = {
 type ManualServiceOrderReadingMatch = {
     partNumber: string;
     rfidProgram?: string | undefined;
+};
+
+type SingleScanServiceOrderReadingMatch = ManualServiceOrderReadingMatch & {
+    gtin?: string | undefined;
 };
 
 type ServiceOrderCatalogValidationInput = {
@@ -80,18 +87,39 @@ export const listServiceOrders = async (filters: ServiceOrderFilters = {}): Prom
     return ServiceOrderModel.find(query).sort({ createdAt: -1, folio: 1 });
 };
 
-export const listOpenServiceOrdersByGtin = async (gtin: string): Promise<ServiceOrder[]> => {
-    return ServiceOrderModel.find({
-        gtin,
-        readingMode: "double_scan",
+export const listOpenServiceOrdersByGtin = async (
+    gtin: string,
+    readingMode: GtinBasedServiceOrderReadingMode = "double_scan"
+): Promise<ServiceOrder[]> => {
+    if (readingMode === "double_scan") {
+        return ServiceOrderModel.find({
+            gtin,
+            readingMode,
+            status: "open",
+        }).sort({ createdAt: -1, folio: 1 });
+    }
+
+    const partConfigs = await listActivePartConfigsByExpectedGtin(gtin, "single_scan");
+    const partNumbers = [...new Set(partConfigs.map((partConfig) => partConfig.partNumber))];
+    const query: Record<string, unknown> = {
+        readingMode: "single_scan",
         status: "open",
-    }).sort({ createdAt: -1, folio: 1 });
+        $or: [
+            { gtin },
+            ...(partNumbers.length > 0 ? [{ partNumber: { $in: partNumbers } }] : []),
+        ],
+    };
+
+    return ServiceOrderModel.find(query).sort({ createdAt: -1, folio: 1 });
 };
 
-export const listOpenServiceOrdersByPartNumber = async (partNumber: string): Promise<ServiceOrder[]> => {
+export const listOpenServiceOrdersByPartNumber = async (
+    partNumber: string,
+    readingMode: PartNumberBasedServiceOrderReadingMode = "manual"
+): Promise<ServiceOrder[]> => {
     return ServiceOrderModel.find({
         partNumber: partNumber.toUpperCase(),
-        readingMode: "manual",
+        readingMode,
         status: "open",
     }).sort({ createdAt: -1, folio: 1 });
 };
@@ -128,6 +156,31 @@ export const validateServiceOrderCatalogReferences = async (
         return {
             readingMode: "manual",
             partNumber,
+            rfidProgram: partConfig.rfidProgram,
+        };
+    }
+
+    if (input.readingMode === "single_scan") {
+        const partNumber = input.partNumber?.trim().toUpperCase();
+
+        if (!partNumber) {
+            throw new Error("El numero de parte es obligatorio para una orden single scan");
+        }
+
+        const partConfig = await getPartConfigByPartNumber(partNumber, "single_scan", true);
+
+        if (!partConfig) {
+            throw new Error("El numero de parte no existe o no esta activo para lectura single scan");
+        }
+
+        if (!partConfig.expectedGtin) {
+            throw new Error("El numero de parte single scan no tiene GTIN esperado configurado");
+        }
+
+        return {
+            readingMode: "single_scan",
+            partNumber,
+            gtin: partConfig.expectedGtin,
             rfidProgram: partConfig.rfidProgram,
         };
     }
@@ -226,6 +279,39 @@ export const validateManualServiceOrderForProgramming = async (
         && serviceOrder.rfidProgram !== readingData.rfidProgram.trim().toUpperCase()
     ) {
         throw new Error("El RFID program del producto no coincide con la orden de servicio");
+    }
+
+    return serviceOrder;
+};
+
+export const validateSingleScanServiceOrderForProgramming = async (
+    serviceOrderId: string,
+    readingData: SingleScanServiceOrderReadingMatch
+): Promise<ServiceOrder> => {
+    const serviceOrder = await validateOpenServiceOrder(serviceOrderId);
+
+    if (serviceOrder.readingMode !== "single_scan") {
+        throw new Error("La orden de servicio seleccionada no pertenece al flujo single scan");
+    }
+
+    if (serviceOrder.partNumber !== readingData.partNumber.trim().toUpperCase()) {
+        throw new Error("El numero de parte no coincide con la orden de servicio");
+    }
+
+    if (
+        serviceOrder.rfidProgram
+        && readingData.rfidProgram
+        && serviceOrder.rfidProgram !== readingData.rfidProgram.trim().toUpperCase()
+    ) {
+        throw new Error("El RFID program del producto no coincide con la orden de servicio");
+    }
+
+    if (
+        serviceOrder.gtin
+        && readingData.gtin
+        && serviceOrder.gtin !== readingData.gtin.trim()
+    ) {
+        throw new Error("El GTIN del producto no coincide con la orden de servicio");
     }
 
     return serviceOrder;
