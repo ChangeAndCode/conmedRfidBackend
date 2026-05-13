@@ -1,13 +1,16 @@
 import { DoubleScanRead } from "../models/doubleScanRead";
-import { ManualRead } from "../models/manualRead";
+import { ManualRead, ManualReadModel } from "../models/manualRead";
 import {
     ProgrammingRecord,
+    ProgrammingVerificationData,
     ProgrammingRecordMode,
     ProgrammingRecordModel,
     ProgrammingRecordSourceType,
     ProgrammingRecordStatus,
 } from "../models/programmingRecord";
-import { SingleScanRead } from "../models/singleScanRead";
+import { SingleScanRead, SingleScanReadModel } from "../models/singleScanRead";
+import { DoubleScanReadModel } from "../models/doubleScanRead";
+import { parseDoubleScanVerificationReading, parseSingleScanReading } from "./gs1Parser";
 import { getDocumentId } from "./serviceOrderService";
 
 type ProgrammingRecordQuery = {
@@ -22,9 +25,113 @@ type ProgrammingRecordQuery = {
     status?: ProgrammingRecordStatus;
 };
 
+type ResolveProgrammingRecordInput = {
+    mode: ProgrammingRecordMode;
+    strictMode: boolean;
+    rawReference?: string | undefined;
+    rawScan?: string | undefined;
+    firstBarcodeRaw?: string | undefined;
+    secondBarcodeRaw?: string | undefined;
+};
+
+type ProgrammingRecordResolutionType = "no_match" | "single_match" | "multiple_matches";
+type ProgrammingRecordMatchStrategy = "manual_raw_reference" | "single_scan_raw" | "double_scan_raw" | "gs1_fields";
+
+type ResolvedProgrammingRecordInput = {
+    mode: ProgrammingRecordMode;
+    rawReference?: string | undefined;
+    rawScan?: string | undefined;
+    firstBarcodeRaw?: string | undefined;
+    secondBarcodeRaw?: string | undefined;
+    gtin?: string | undefined;
+    lot?: string | undefined;
+    manufactureDate?: string | undefined;
+};
+
+export type ResolveProgrammingRecordResult = {
+    resolutionType: ProgrammingRecordResolutionType;
+    matchedBy?: ProgrammingRecordMatchStrategy | undefined;
+    candidateCount: number;
+    autoSelectedProgrammingRecordId: string | null;
+    candidates: ProgrammingRecord[];
+    normalizedInput: ResolvedProgrammingRecordInput;
+};
+
+type VerifyProgrammingRecordInput = {
+    programmingRecordId: string;
+    rawReference?: string | undefined;
+    rawScan?: string | undefined;
+    firstBarcodeRaw?: string | undefined;
+    secondBarcodeRaw?: string | undefined;
+    verifiedBy?: string | undefined;
+    verificationNotes?: string | undefined;
+};
+
 const listQueryValue = (value: string | undefined): string | undefined => {
     const normalized = value?.trim();
     return normalized && normalized.length > 0 ? normalized : undefined;
+};
+
+const verificationSearchStatuses: ProgrammingRecordStatus[] = ["programmed", "verified"];
+
+const statusPriority: Record<ProgrammingRecordStatus, number> = {
+    programmed: 0,
+    verified: 1,
+    captured: 2,
+};
+
+const resolveResolutionType = (candidateCount: number): ProgrammingRecordResolutionType => {
+    if (candidateCount === 0) {
+        return "no_match";
+    }
+
+    if (candidateCount === 1) {
+        return "single_match";
+    }
+
+    return "multiple_matches";
+};
+
+const sortVerificationCandidates = (records: ProgrammingRecord[]): ProgrammingRecord[] => {
+    return [...records].sort((left, right) => {
+        const statusDelta = statusPriority[left.status] - statusPriority[right.status];
+
+        if (statusDelta !== 0) {
+            return statusDelta;
+        }
+
+        const leftCreatedAt = left.createdAt ? new Date(left.createdAt).getTime() : 0;
+        const rightCreatedAt = right.createdAt ? new Date(right.createdAt).getTime() : 0;
+        return rightCreatedAt - leftCreatedAt;
+    });
+};
+
+const queryVerificationCandidates = async (query: Record<string, unknown>): Promise<ProgrammingRecord[]> => {
+    const records = await ProgrammingRecordModel.find({
+        ...query,
+        status: { $in: verificationSearchStatuses },
+    }).sort({ createdAt: -1 }).limit(25);
+
+    return sortVerificationCandidates(records);
+};
+
+const buildResolveProgrammingRecordResult = (
+    candidates: ProgrammingRecord[],
+    matchedBy: ProgrammingRecordMatchStrategy | undefined,
+    normalizedInput: ResolvedProgrammingRecordInput
+): ResolveProgrammingRecordResult => {
+    const candidateCount = candidates.length;
+
+    return {
+        resolutionType: resolveResolutionType(candidateCount),
+        matchedBy,
+        candidateCount,
+        autoSelectedProgrammingRecordId: candidateCount === 1
+            ? getDocumentId(candidates[0] as ProgrammingRecord & { _id?: unknown })
+            : null,
+        candidates,
+        normalizedInput,
+    };
 };
 
 export const listProgrammingRecords = async (filters: ProgrammingRecordQuery = {}): Promise<ProgrammingRecord[]> => {
@@ -71,6 +178,254 @@ export const listProgrammingRecords = async (filters: ProgrammingRecordQuery = {
 
 export const getProgrammingRecordById = async (id: string): Promise<ProgrammingRecord | null> => {
     return ProgrammingRecordModel.findById(id);
+};
+
+const buildVerificationData = (
+    normalizedInput: ResolvedProgrammingRecordInput
+): ProgrammingVerificationData | undefined => {
+    const payload: ProgrammingVerificationData = {};
+
+    if (normalizedInput.rawReference) {
+        payload.rawReference = normalizedInput.rawReference;
+    }
+
+    if (normalizedInput.rawScan) {
+        payload.rawScan = normalizedInput.rawScan;
+    }
+
+    if (normalizedInput.firstBarcodeRaw) {
+        payload.firstBarcodeRaw = normalizedInput.firstBarcodeRaw;
+    }
+
+    if (normalizedInput.secondBarcodeRaw) {
+        payload.secondBarcodeRaw = normalizedInput.secondBarcodeRaw;
+    }
+
+    return Object.keys(payload).length > 0 ? payload : undefined;
+};
+
+const updateSourceReadStatusToVerified = async (record: ProgrammingRecord): Promise<void> => {
+    if (record.sourceType === "manual_read") {
+        const updated = await ManualReadModel.findByIdAndUpdate(record.sourceReadId, { status: "verified" }, { new: true });
+
+        if (!updated) {
+            throw new Error("La lectura manual asociada no existe");
+        }
+
+        return;
+    }
+
+    if (record.sourceType === "single_scan_read") {
+        const updated = await SingleScanReadModel.findByIdAndUpdate(
+            record.sourceReadId,
+            { status: "verified" },
+            { new: true }
+        );
+
+        if (!updated) {
+            throw new Error("La lectura single scan asociada no existe");
+        }
+
+        return;
+    }
+
+    const updated = await DoubleScanReadModel.findByIdAndUpdate(record.sourceReadId, { status: "verified" }, { new: true });
+
+    if (!updated) {
+        throw new Error("La lectura doble asociada no existe");
+    }
+};
+
+export const resolveProgrammingRecord = async (
+    input: ResolveProgrammingRecordInput
+): Promise<ResolveProgrammingRecordResult> => {
+    if (input.mode === "manual") {
+        const rawReference = listQueryValue(input.rawReference);
+
+        if (!rawReference) {
+            throw new Error("El campo rawReference es obligatorio para resolver una programacion manual");
+        }
+
+        const candidates = await queryVerificationCandidates({
+            mode: "manual",
+            "rawSourceData.rawReference": rawReference,
+        });
+
+        return buildResolveProgrammingRecordResult(candidates, "manual_raw_reference", {
+            mode: "manual",
+            rawReference,
+        });
+    }
+
+    if (input.mode === "single_scan") {
+        const rawScan = listQueryValue(input.rawScan);
+
+        if (!rawScan) {
+            throw new Error("El campo rawScan es obligatorio para resolver una programacion single scan");
+        }
+
+        const resolvedScan = parseSingleScanReading(rawScan);
+        const exactCandidates = await queryVerificationCandidates({
+            mode: "single_scan",
+            "rawSourceData.rawScan": resolvedScan.rawScan,
+        });
+
+        if (exactCandidates.length > 0) {
+            return buildResolveProgrammingRecordResult(exactCandidates, "single_scan_raw", {
+                mode: "single_scan",
+                rawScan: resolvedScan.rawScan,
+                gtin: resolvedScan.gtin,
+                lot: resolvedScan.lot,
+                manufactureDate: resolvedScan.manufactureDate,
+            });
+        }
+
+        const gs1FieldQuery: Record<string, unknown> = {
+            gtin: resolvedScan.gtin,
+            lot: resolvedScan.lot,
+            manufactureDate: resolvedScan.manufactureDate,
+        };
+
+        if (input.strictMode) {
+            gs1FieldQuery.mode = "single_scan";
+        }
+
+        const candidates = await queryVerificationCandidates(gs1FieldQuery);
+
+        return buildResolveProgrammingRecordResult(candidates, "gs1_fields", {
+            mode: "single_scan",
+            rawScan: resolvedScan.rawScan,
+            gtin: resolvedScan.gtin,
+            lot: resolvedScan.lot,
+            manufactureDate: resolvedScan.manufactureDate,
+        });
+    }
+
+    const firstBarcodeRaw = listQueryValue(input.firstBarcodeRaw);
+    const secondBarcodeRaw = listQueryValue(input.secondBarcodeRaw);
+
+    if (!firstBarcodeRaw || !secondBarcodeRaw) {
+        throw new Error("Los campos firstBarcodeRaw y secondBarcodeRaw son obligatorios para doble codigo");
+    }
+
+    const resolvedReading = parseDoubleScanVerificationReading(firstBarcodeRaw, secondBarcodeRaw);
+    const exactCandidates = await queryVerificationCandidates({
+        mode: "double_scan",
+        "rawSourceData.firstBarcodeRaw": resolvedReading.firstBarcodeRaw,
+        "rawSourceData.secondBarcodeRaw": resolvedReading.secondBarcodeRaw,
+    });
+
+    if (exactCandidates.length > 0) {
+        return buildResolveProgrammingRecordResult(exactCandidates, "double_scan_raw", {
+            mode: "double_scan",
+            firstBarcodeRaw: resolvedReading.firstBarcodeRaw,
+            secondBarcodeRaw: resolvedReading.secondBarcodeRaw,
+            gtin: resolvedReading.gtin,
+            lot: resolvedReading.lot,
+            manufactureDate: resolvedReading.manufactureDate,
+        });
+    }
+
+    const gs1FieldQuery: Record<string, unknown> = {
+        gtin: resolvedReading.gtin,
+        lot: resolvedReading.lot,
+        manufactureDate: resolvedReading.manufactureDate,
+    };
+
+    if (input.strictMode) {
+        gs1FieldQuery.mode = "double_scan";
+    }
+
+    const candidates = await queryVerificationCandidates(gs1FieldQuery);
+
+    return buildResolveProgrammingRecordResult(candidates, "gs1_fields", {
+        mode: "double_scan",
+        firstBarcodeRaw: resolvedReading.firstBarcodeRaw,
+        secondBarcodeRaw: resolvedReading.secondBarcodeRaw,
+        gtin: resolvedReading.gtin,
+        lot: resolvedReading.lot,
+        manufactureDate: resolvedReading.manufactureDate,
+    });
+};
+
+export const verifyProgrammingRecord = async (
+    input: VerifyProgrammingRecordInput
+): Promise<ProgrammingRecord> => {
+    const programmingRecord = await ProgrammingRecordModel.findById(input.programmingRecordId);
+
+    if (!programmingRecord) {
+        throw new Error("Programming record no encontrado");
+    }
+
+    if (programmingRecord.status === "verified") {
+        throw new Error("El programming record ya fue verificado");
+    }
+
+    const resolution = await resolveProgrammingRecord({
+        mode: programmingRecord.mode,
+        strictMode: true,
+        rawReference: input.rawReference,
+        rawScan: input.rawScan,
+        firstBarcodeRaw: input.firstBarcodeRaw,
+        secondBarcodeRaw: input.secondBarcodeRaw,
+    });
+    const programmingRecordId = getDocumentId(programmingRecord as ProgrammingRecord & { _id?: unknown });
+    const matchingCandidate = resolution.candidates.find((candidate) => {
+        return getDocumentId(candidate as ProgrammingRecord & { _id?: unknown }) === programmingRecordId;
+    });
+
+    if (!matchingCandidate) {
+        throw new Error("La evidencia de verificacion no coincide con el programming record seleccionado");
+    }
+
+    const verificationData = buildVerificationData(resolution.normalizedInput);
+    programmingRecord.status = "verified";
+    programmingRecord.verifiedAt = new Date();
+
+    if (verificationData) {
+        programmingRecord.verificationData = verificationData;
+    } else {
+        delete programmingRecord.verificationData;
+    }
+
+    if (resolution.matchedBy) {
+        programmingRecord.verificationMatchedBy = resolution.matchedBy;
+    } else {
+        delete programmingRecord.verificationMatchedBy;
+    }
+
+    const verifiedBy = listQueryValue(input.verifiedBy);
+
+    if (verifiedBy) {
+        programmingRecord.verifiedBy = verifiedBy;
+    } else {
+        delete programmingRecord.verifiedBy;
+    }
+
+    const verificationNotes = listQueryValue(input.verificationNotes);
+
+    if (verificationNotes) {
+        programmingRecord.verificationNotes = verificationNotes;
+    } else {
+        delete programmingRecord.verificationNotes;
+    }
+
+    await programmingRecord.save();
+
+    try {
+        await updateSourceReadStatusToVerified(programmingRecord);
+    } catch (error) {
+        programmingRecord.status = "programmed";
+        delete programmingRecord.verifiedAt;
+        delete programmingRecord.verificationData;
+        delete programmingRecord.verificationMatchedBy;
+        delete programmingRecord.verifiedBy;
+        delete programmingRecord.verificationNotes;
+        await programmingRecord.save();
+        throw error;
+    }
+
+    return programmingRecord;
 };
 
 export const createProgrammingRecordFromManualRead = async (

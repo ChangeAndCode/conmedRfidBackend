@@ -37,7 +37,7 @@ export const createManualRead = async (
             serviceOrderId,
             partNumber,
             inputMethod: "manual",
-            status: "captured",
+            status: "programmed",
         };
 
         const lot = normalizeOptionalText(req.body.lot);

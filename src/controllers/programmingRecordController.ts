@@ -8,7 +8,12 @@ import {
     programmingRecordSourceTypes,
     programmingRecordStatuses,
 } from "../models/programmingRecord";
-import { getProgrammingRecordById, listProgrammingRecords } from "../services/programmingRecordService";
+import {
+    getProgrammingRecordById,
+    listProgrammingRecords,
+    resolveProgrammingRecord,
+    verifyProgrammingRecord,
+} from "../services/programmingRecordService";
 import { normalizeOptionalText } from "../utils/requestNormalization";
 
 const normalizeProgrammingRecordMode = (value: unknown): ProgrammingRecordMode | undefined => {
@@ -51,6 +56,38 @@ const normalizeProgrammingRecordStatus = (value: unknown): ProgrammingRecordStat
     }
 
     return normalized as ProgrammingRecordStatus;
+};
+
+type ResolveProgrammingRecordBody = {
+    mode?: unknown;
+    rawReference?: unknown;
+    rawScan?: unknown;
+    firstBarcodeRaw?: unknown;
+    secondBarcodeRaw?: unknown;
+};
+
+type VerifyProgrammingRecordBody = {
+    rawReference?: unknown;
+    rawScan?: unknown;
+    firstBarcodeRaw?: unknown;
+    secondBarcodeRaw?: unknown;
+    verifiedBy?: unknown;
+    verificationNotes?: unknown;
+};
+
+const getResolveInputTypeCount = (input: {
+    rawReference?: string | undefined;
+    rawScan?: string | undefined;
+    firstBarcodeRaw?: string | undefined;
+    secondBarcodeRaw?: string | undefined;
+}): number => {
+    const hasDoubleScanInput = Boolean(input.firstBarcodeRaw || input.secondBarcodeRaw);
+
+    return [
+        Boolean(input.rawReference),
+        Boolean(input.rawScan),
+        hasDoubleScanInput,
+    ].filter(Boolean).length;
 };
 
 export const listProgrammingRecordsHandler = async (req: Request, res: Response): Promise<void> => {
@@ -143,4 +180,120 @@ export const getProgrammingRecordByIdHandler = async (
     }
 
     res.json({ data: record });
+};
+
+export const resolveProgrammingRecordHandler = async (
+    req: Request<unknown, unknown, ResolveProgrammingRecordBody>,
+    res: Response
+): Promise<void> => {
+    try {
+        const requestedMode = normalizeProgrammingRecordMode(req.body.mode);
+        const rawReference = normalizeOptionalText(req.body.rawReference);
+        const rawScan = normalizeOptionalText(req.body.rawScan);
+        const firstBarcodeRaw = normalizeOptionalText(req.body.firstBarcodeRaw);
+        const secondBarcodeRaw = normalizeOptionalText(req.body.secondBarcodeRaw);
+        const providedInputTypeCount = getResolveInputTypeCount({
+            rawReference,
+            rawScan,
+            firstBarcodeRaw,
+            secondBarcodeRaw,
+        });
+
+        if (!requestedMode && providedInputTypeCount > 1) {
+            throw new Error("Envia un solo tipo de entrada o especifica el campo mode");
+        }
+
+        let mode = requestedMode;
+
+        if (!mode) {
+            if (firstBarcodeRaw || secondBarcodeRaw) {
+                if (!firstBarcodeRaw || !secondBarcodeRaw) {
+                    throw new Error("Para doble codigo debes enviar firstBarcodeRaw y secondBarcodeRaw");
+                }
+
+                mode = "double_scan";
+            } else if (rawScan) {
+                mode = "single_scan";
+            } else if (rawReference) {
+                mode = "manual";
+            } else {
+                throw new Error("Debes enviar rawReference, rawScan o firstBarcodeRaw y secondBarcodeRaw");
+            }
+        }
+
+        if (mode === "manual" && !rawReference) {
+            throw new Error("El campo rawReference es obligatorio para una verificacion manual");
+        }
+
+        if (mode === "single_scan" && !rawScan) {
+            throw new Error("El campo rawScan es obligatorio para una verificacion single scan");
+        }
+
+        if (mode === "double_scan" && (!firstBarcodeRaw || !secondBarcodeRaw)) {
+            throw new Error("Los campos firstBarcodeRaw y secondBarcodeRaw son obligatorios para doble codigo");
+        }
+
+        const resolution = await resolveProgrammingRecord({
+            mode,
+            strictMode: Boolean(requestedMode),
+            rawReference,
+            rawScan,
+            firstBarcodeRaw,
+            secondBarcodeRaw,
+        });
+
+        const message = resolution.candidateCount === 0
+            ? "No se encontraron programaciones coincidentes"
+            : resolution.candidateCount === 1
+                ? "Programacion resuelta correctamente"
+                : "Se encontraron varias programaciones coincidentes";
+
+        res.json({
+            message,
+            data: resolution,
+        });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "No se pudo resolver la programacion";
+        res.status(400).json({ message });
+    }
+};
+
+export const verifyProgrammingRecordHandler = async (
+    req: Request<{ id: string }, unknown, VerifyProgrammingRecordBody>,
+    res: Response
+): Promise<void> => {
+    try {
+        const { id } = req.params;
+
+        if (!isValidObjectId(id)) {
+            res.status(400).json({ message: "El id no es valido" });
+            return;
+        }
+
+        const programmingRecord = await verifyProgrammingRecord({
+            programmingRecordId: id,
+            rawReference: normalizeOptionalText(req.body.rawReference),
+            rawScan: normalizeOptionalText(req.body.rawScan),
+            firstBarcodeRaw: normalizeOptionalText(req.body.firstBarcodeRaw),
+            secondBarcodeRaw: normalizeOptionalText(req.body.secondBarcodeRaw),
+            verifiedBy: req.authUser?.username ?? normalizeOptionalText(req.body.verifiedBy),
+            verificationNotes: normalizeOptionalText(req.body.verificationNotes),
+        });
+
+        res.json({
+            message: "Programming record verificado correctamente",
+            data: programmingRecord,
+        });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "No se pudo verificar el programming record";
+        const statusCode = message.includes("ya fue verificado")
+            ? 409
+            : message.includes("no coincide")
+                ? 409
+                : message.includes("no encontrado")
+                    ? 404
+                    : 400;
+
+        res.status(statusCode).json({ message });
+    }
 };

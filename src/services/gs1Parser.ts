@@ -53,6 +53,17 @@ export interface SingleScanParseResult {
     rulesApplied: string[];
 }
 
+export interface DoubleScanVerificationParseResult {
+    firstBarcodeRaw: string;
+    secondBarcodeRaw: string;
+    firstScanFields: ParsedGs1Fields;
+    secondScanFields: ParsedGs1Fields;
+    gtin: string;
+    lot: string;
+    manufactureDate: string;
+    rulesApplied: string[];
+}
+
 const normalizeScanValue = (raw: string): string => {
     return raw.replace(/[\r\n\t]/g, "").trim();
 };
@@ -232,6 +243,37 @@ export const parseDoubleScanReading = (
         lot,
         manufactureDate: secondScan.fields.ai11,
         rulesApplied,
+    };
+};
+
+export const parseDoubleScanVerificationReading = (
+    firstBarcodeRaw: string,
+    secondBarcodeRaw: string
+): DoubleScanVerificationParseResult => {
+    const resolvedFirstScan = parseFirstScanBarcode(firstBarcodeRaw);
+    const secondScan = parseGs1Barcode(secondBarcodeRaw);
+
+    if (!secondScan.fields.ai11) {
+        throw new Error("La segunda lectura no contiene fecha de manufactura en AI 11");
+    }
+
+    if (!secondScan.fields.ai10) {
+        throw new Error("La segunda lectura no contiene lote en AI 10");
+    }
+
+    return {
+        firstBarcodeRaw: resolvedFirstScan.firstBarcodeRaw,
+        secondBarcodeRaw: secondScan.normalizedRaw,
+        firstScanFields: resolvedFirstScan.firstScanFields,
+        secondScanFields: secondScan.fields,
+        gtin: resolvedFirstScan.gtin,
+        lot: secondScan.fields.ai10,
+        manufactureDate: secondScan.fields.ai11,
+        rulesApplied: [
+            "first_scan_ai01_gtin",
+            "second_scan_ai11_manufacture_date",
+            "second_scan_ai10_lot",
+        ],
     };
 };
 

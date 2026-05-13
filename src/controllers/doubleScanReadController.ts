@@ -189,7 +189,7 @@ export const createDoubleScanRead = async (
             manufactureDate: parsedReading.manufactureDate,
             rulesApplied: parsedReading.rulesApplied,
             inputMethod: "double_scan",
-            status: "captured",
+            status: "programmed",
         };
 
         payload.serviceOrder = serviceOrder.folio;

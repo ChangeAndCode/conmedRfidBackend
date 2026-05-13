@@ -441,6 +441,7 @@ Resultado esperado:
 - guarda `readingMode = single_scan` en la orden relacionada
 - toma `GTIN`, `lote` y `fecha de manufactura` desde el `rawScan`
 - si la `part-config` single scan tiene `rfidProgram`, `expectedGtin` o `filterLabel`, el backend los hereda
+- crea un `programming_record` con `status = programmed`
 
 ### 10.2.3 Caso negativo single scan
 
@@ -547,6 +548,7 @@ Resultado esperado:
 - la lectura guarda `serviceOrderId`
 - la lectura guarda el `folio` en `serviceOrder`
 - valida la orden por `partNumber`
+- crea un `programming_record` con `status = programmed`
 
 ### 12.1 Caso negativo manual
 
@@ -594,6 +596,7 @@ Resultado esperado:
 
 - responde `201`
 - valida orden por `gtin + rfidProgram`
+- crea un `programming_record` con `status = programmed`
 
 ### 13.1 Caso negativo doble lectura
 
@@ -615,3 +618,196 @@ Resultado esperado:
 
 - si el `GTIN` o el `RFID program` no coinciden con la orden, responde `400`
 - bloquea el guardado
+
+## Paso 14. Resolver programaciones para verificacion
+
+### 14.1 Confirmar programaciones pendientes
+
+```powershell
+Invoke-RestMethod -Method Get `
+  -Uri "$baseUrl/programming-records?status=programmed"
+```
+
+Resultado esperado:
+
+- responde `200`
+- regresa los `programming_records` creados en las lecturas manual, single scan y doble codigo
+- cada record debe traer `status = programmed`
+
+### 14.2 Resolver programacion manual por referencia
+
+```powershell
+$manualProgrammingResolveBody = @{
+  mode = "manual"
+  rawReference = "500322 A"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post `
+  -Uri "$baseUrl/programming-records/resolve" `
+  -ContentType "application/json" `
+  -Body $manualProgrammingResolveBody
+```
+
+Resultado esperado:
+
+- responde `200`
+- `data.resolutionType` debe ser `single_match`
+- `data.matchedBy` debe ser `manual_raw_reference`
+- `data.candidates[0].serviceOrderFolio` debe ser `SO-MAN-001`
+- `data.candidates[0].partNumber` debe ser `EMVS353`
+
+### 14.3 Resolver programacion single scan por GS1
+
+```powershell
+$singleProgrammingResolveBody = @{
+  rawScan = "0120845854081720112209011020220"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post `
+  -Uri "$baseUrl/programming-records/resolve" `
+  -ContentType "application/json" `
+  -Body $singleProgrammingResolveBody
+```
+
+Resultado esperado:
+
+- responde `200`
+- `data.matchedBy` debe ser `single_scan_raw` o `gs1_fields`
+- `data.candidateCount` debe ser al menos `1`
+- cada coincidencia debe traer `gtin`, `lot`, `manufactureDate`, `serviceOrderFolio` y `partNumber`
+- si hay varias coincidencias validas, `data.resolutionType` debe ser `multiple_matches` y `autoSelectedProgrammingRecordId` debe ser `null`
+
+### 14.4 Resolver programacion de doble codigo
+
+```powershell
+$doubleProgrammingResolveBody = @{
+  firstBarcodeRaw = "0100851136001566"
+  secondBarcodeRaw = "1124010110LOT123456"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post `
+  -Uri "$baseUrl/programming-records/resolve" `
+  -ContentType "application/json" `
+  -Body $doubleProgrammingResolveBody
+```
+
+Resultado esperado:
+
+- responde `200`
+- `data.matchedBy` debe ser `double_scan_raw` o `gs1_fields`
+- `data.candidateCount` debe ser al menos `1`
+- cada coincidencia debe traer `serviceOrderId`, `serviceOrderFolio`, `partNumber`, `rfidProgram`, `gtin`, `lot` y `manufactureDate`
+
+## Paso 15. Confirmar verificacion
+
+### 15.1 Confirmar verificacion manual
+
+Primero resuelve la programacion manual y toma el `_id` del primer candidato.
+
+```powershell
+$manualProgrammingRecordId = "<programmingRecordId-manual>"
+
+$manualProgrammingVerifyBody = @{
+  rawReference = "500322 A"
+  verifiedBy = "estacion-verificacion"
+  verificationNotes = "verificacion manual de prueba"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post `
+  -Uri "$baseUrl/programming-records/$manualProgrammingRecordId/verify" `
+  -ContentType "application/json" `
+  -Body $manualProgrammingVerifyBody
+```
+
+Resultado esperado:
+
+- responde `200`
+- `data.status` debe ser `verified`
+- `data.verifiedAt` debe venir informado
+- `data.verifiedBy` debe ser `estacion-verificacion`
+- `data.verificationData.rawReference` debe ser `500322 A`
+- `data.verificationMatchedBy` debe ser `manual_raw_reference`
+
+### 15.2 Confirmar verificacion single scan
+
+Primero resuelve la programacion single scan y toma el `_id` del candidato seleccionado.
+
+```powershell
+$singleProgrammingRecordId = "<programmingRecordId-single>"
+
+$singleProgrammingVerifyBody = @{
+  rawScan = "0120845854081720112209011020220"
+  verifiedBy = "estacion-verificacion"
+  verificationNotes = "verificacion single scan de prueba"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post `
+  -Uri "$baseUrl/programming-records/$singleProgrammingRecordId/verify" `
+  -ContentType "application/json" `
+  -Body $singleProgrammingVerifyBody
+```
+
+Resultado esperado:
+
+- responde `200`
+- `data.status` debe ser `verified`
+- `data.verificationData.rawScan` debe venir informado
+- `data.verificationMatchedBy` debe ser `single_scan_raw` o `gs1_fields`
+
+### 15.3 Confirmar verificacion doble codigo
+
+Primero resuelve la programacion double scan y toma el `_id` del candidato seleccionado.
+
+```powershell
+$doubleProgrammingRecordId = "<programmingRecordId-double>"
+
+$doubleProgrammingVerifyBody = @{
+  firstBarcodeRaw = "0100851136001566"
+  secondBarcodeRaw = "1124010110LOT123456"
+  verifiedBy = "estacion-verificacion"
+  verificationNotes = "verificacion doble codigo de prueba"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post `
+  -Uri "$baseUrl/programming-records/$doubleProgrammingRecordId/verify" `
+  -ContentType "application/json" `
+  -Body $doubleProgrammingVerifyBody
+```
+
+Resultado esperado:
+
+- responde `200`
+- `data.status` debe ser `verified`
+- `data.verificationData.firstBarcodeRaw` y `data.verificationData.secondBarcodeRaw` deben venir informados
+- `data.verificationMatchedBy` debe ser `double_scan_raw` o `gs1_fields`
+
+### 15.4 Validar consistencia despues de verificar
+
+```powershell
+Invoke-RestMethod -Method Get `
+  -Uri "$baseUrl/programming-records?status=verified"
+```
+
+Resultado esperado:
+
+- responde `200`
+- los `programming_records` verificados deben aparecer con `status = verified`
+- la lectura origen relacionada en `manualreads`, `singlescanreads` o `doublescanreads` tambien debe quedar con `status = verified`
+
+### 15.5 Caso negativo de evidencia que no coincide
+
+```powershell
+$manualProgrammingVerifyInvalidBody = @{
+  rawReference = "REFERENCIA-INCORRECTA"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post `
+  -Uri "$baseUrl/programming-records/$manualProgrammingRecordId/verify" `
+  -ContentType "application/json" `
+  -Body $manualProgrammingVerifyInvalidBody
+```
+
+Resultado esperado:
+
+- responde `409`
+- indica que la evidencia de verificacion no coincide con el `programming_record` seleccionado

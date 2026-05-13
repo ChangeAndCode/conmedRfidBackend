@@ -89,7 +89,7 @@ export const createSingleScanRead = async (
             partNumber,
             rawScan: resolvedScan.rawScan,
             inputMethod: "single_scan",
-            status: "captured",
+            status: "programmed",
         };
 
         const requestRfidProgram = normalizeOptionalText(req.body.rfidProgram)?.toUpperCase();

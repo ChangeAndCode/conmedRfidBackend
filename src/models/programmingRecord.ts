@@ -15,6 +15,13 @@ export interface ProgrammingRawSourceData {
     secondBarcodeRaw?: string;
 }
 
+export interface ProgrammingVerificationData {
+    rawReference?: string;
+    rawScan?: string;
+    firstBarcodeRaw?: string;
+    secondBarcodeRaw?: string;
+}
+
 export interface ProgrammingRecord {
     mode: ProgrammingRecordMode;
     sourceType: ProgrammingRecordSourceType;
@@ -29,6 +36,11 @@ export interface ProgrammingRecord {
     manufactureDate?: string;
     filterLabel?: string;
     rawSourceData: ProgrammingRawSourceData;
+    verificationData?: ProgrammingVerificationData;
+    verificationMatchedBy?: string;
+    verificationNotes?: string;
+    verifiedAt?: Date;
+    verifiedBy?: string;
     notes?: string;
     createdBy?: string;
     status: ProgrammingRecordStatus;
@@ -37,6 +49,30 @@ export interface ProgrammingRecord {
 }
 
 const programmingRawSourceDataSchema = new Schema<ProgrammingRawSourceData>(
+    {
+        rawReference: {
+            type: String,
+            trim: true,
+        },
+        rawScan: {
+            type: String,
+            trim: true,
+        },
+        firstBarcodeRaw: {
+            type: String,
+            trim: true,
+        },
+        secondBarcodeRaw: {
+            type: String,
+            trim: true,
+        },
+    },
+    {
+        _id: false,
+    }
+);
+
+const programmingVerificationDataSchema = new Schema<ProgrammingVerificationData>(
     {
         rawReference: {
             type: String,
@@ -121,6 +157,25 @@ const programmingRecordSchema = new Schema<ProgrammingRecord>(
             required: true,
             default: {},
         },
+        verificationData: {
+            type: programmingVerificationDataSchema,
+            default: undefined,
+        },
+        verificationMatchedBy: {
+            type: String,
+            trim: true,
+        },
+        verificationNotes: {
+            type: String,
+            trim: true,
+        },
+        verifiedAt: {
+            type: Date,
+        },
+        verifiedBy: {
+            type: String,
+            trim: true,
+        },
         notes: {
             type: String,
             trim: true,
@@ -132,7 +187,7 @@ const programmingRecordSchema = new Schema<ProgrammingRecord>(
         status: {
             type: String,
             enum: programmingRecordStatuses,
-            default: "captured",
+            default: "programmed",
             required: true,
         },
     },
@@ -148,5 +203,9 @@ programmingRecordSchema.index({ serviceOrderId: 1, createdAt: -1 });
 programmingRecordSchema.index({ partNumber: 1, mode: 1, createdAt: -1 });
 programmingRecordSchema.index({ gtin: 1, mode: 1, createdAt: -1 });
 programmingRecordSchema.index({ rfidProgram: 1, mode: 1, createdAt: -1 });
+programmingRecordSchema.index({ gtin: 1, lot: 1, manufactureDate: 1, createdAt: -1 });
+programmingRecordSchema.index({ "rawSourceData.rawReference": 1, mode: 1, createdAt: -1 });
+programmingRecordSchema.index({ "rawSourceData.rawScan": 1, createdAt: -1 });
+programmingRecordSchema.index({ "rawSourceData.firstBarcodeRaw": 1, "rawSourceData.secondBarcodeRaw": 1, createdAt: -1 });
 
 export const ProgrammingRecordModel = model<ProgrammingRecord>("ProgrammingRecord", programmingRecordSchema);

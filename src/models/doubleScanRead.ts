@@ -140,7 +140,7 @@ const doubleScanReadSchema = new Schema<DoubleScanRead>(
         status: {
             type: String,
             enum: doubleScanReadStatuses,
-            default: "captured",
+            default: "programmed",
             required: true,
         },
     },
