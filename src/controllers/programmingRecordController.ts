@@ -71,7 +71,6 @@ type VerifyProgrammingRecordBody = {
     rawScan?: unknown;
     firstBarcodeRaw?: unknown;
     secondBarcodeRaw?: unknown;
-    verifiedBy?: unknown;
     verificationNotes?: unknown;
 };
 
@@ -276,7 +275,6 @@ export const verifyProgrammingRecordHandler = async (
             rawScan: normalizeOptionalText(req.body.rawScan),
             firstBarcodeRaw: normalizeOptionalText(req.body.firstBarcodeRaw),
             secondBarcodeRaw: normalizeOptionalText(req.body.secondBarcodeRaw),
-            verifiedBy: req.authUser?.username ?? normalizeOptionalText(req.body.verifiedBy),
             verificationNotes: normalizeOptionalText(req.body.verificationNotes),
         });
 

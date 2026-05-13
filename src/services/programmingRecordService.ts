@@ -63,7 +63,6 @@ type VerifyProgrammingRecordInput = {
     rawScan?: string | undefined;
     firstBarcodeRaw?: string | undefined;
     secondBarcodeRaw?: string | undefined;
-    verifiedBy?: string | undefined;
     verificationNotes?: string | undefined;
 };
 
@@ -394,14 +393,6 @@ export const verifyProgrammingRecord = async (
         delete programmingRecord.verificationMatchedBy;
     }
 
-    const verifiedBy = listQueryValue(input.verifiedBy);
-
-    if (verifiedBy) {
-        programmingRecord.verifiedBy = verifiedBy;
-    } else {
-        delete programmingRecord.verifiedBy;
-    }
-
     const verificationNotes = listQueryValue(input.verificationNotes);
 
     if (verificationNotes) {
@@ -419,7 +410,6 @@ export const verifyProgrammingRecord = async (
         delete programmingRecord.verifiedAt;
         delete programmingRecord.verificationData;
         delete programmingRecord.verificationMatchedBy;
-        delete programmingRecord.verifiedBy;
         delete programmingRecord.verificationNotes;
         await programmingRecord.save();
         throw error;

@@ -40,7 +40,6 @@ export interface ProgrammingRecord {
     verificationMatchedBy?: string;
     verificationNotes?: string;
     verifiedAt?: Date;
-    verifiedBy?: string;
     notes?: string;
     createdBy?: string;
     status: ProgrammingRecordStatus;
@@ -171,10 +170,6 @@ const programmingRecordSchema = new Schema<ProgrammingRecord>(
         },
         verifiedAt: {
             type: Date,
-        },
-        verifiedBy: {
-            type: String,
-            trim: true,
         },
         notes: {
             type: String,

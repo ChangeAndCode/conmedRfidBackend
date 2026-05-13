@@ -5,7 +5,6 @@ import {
     resolveProgrammingRecordHandler,
     verifyProgrammingRecordHandler,
 } from "../controllers/programmingRecordController";
-import { optionalAuth } from "../middleware/auth";
 import { setApiAction } from "../middleware/apiRequestLogger";
 
 const programmingRecordRouter = Router();
@@ -17,7 +16,6 @@ programmingRecordRouter.post(
 );
 programmingRecordRouter.post(
     "/:id/verify",
-    optionalAuth,
     setApiAction("programming_record_verify", "Programming record verificado"),
     verifyProgrammingRecordHandler
 );

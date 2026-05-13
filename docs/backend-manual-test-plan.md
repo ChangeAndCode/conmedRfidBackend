@@ -709,7 +709,6 @@ $manualProgrammingRecordId = "<programmingRecordId-manual>"
 
 $manualProgrammingVerifyBody = @{
   rawReference = "500322 A"
-  verifiedBy = "estacion-verificacion"
   verificationNotes = "verificacion manual de prueba"
 } | ConvertTo-Json
 
@@ -724,7 +723,6 @@ Resultado esperado:
 - responde `200`
 - `data.status` debe ser `verified`
 - `data.verifiedAt` debe venir informado
-- `data.verifiedBy` debe ser `estacion-verificacion`
 - `data.verificationData.rawReference` debe ser `500322 A`
 - `data.verificationMatchedBy` debe ser `manual_raw_reference`
 
@@ -737,7 +735,6 @@ $singleProgrammingRecordId = "<programmingRecordId-single>"
 
 $singleProgrammingVerifyBody = @{
   rawScan = "0120845854081720112209011020220"
-  verifiedBy = "estacion-verificacion"
   verificationNotes = "verificacion single scan de prueba"
 } | ConvertTo-Json
 
@@ -764,7 +761,6 @@ $doubleProgrammingRecordId = "<programmingRecordId-double>"
 $doubleProgrammingVerifyBody = @{
   firstBarcodeRaw = "0100851136001566"
   secondBarcodeRaw = "1124010110LOT123456"
-  verifiedBy = "estacion-verificacion"
   verificationNotes = "verificacion doble codigo de prueba"
 } | ConvertTo-Json
 
