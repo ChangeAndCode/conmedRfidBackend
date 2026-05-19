@@ -2,6 +2,7 @@ import cors from "cors";
 import "dotenv/config";
 import express from "express";
 import authRouter from "./routes/authRoutes";
+import userRoutes from "./routes/userRoutes";
 import { connectToDatabase, disconnectFromDatabase, getDatabaseStatus } from "./config/database";
 import { env } from "./config/env";
 import { logger } from "./config/logger";
@@ -76,6 +77,7 @@ app.use("/api/gtins", gtinRouter);
 app.use("/api/rfid-programs", rfidProgramRouter);
 app.use("/api/service-orders", serviceOrderRouter);
 app.use("/api/auth", authRouter);
+app.use("/api/users", userRoutes);
 
 const bootstrap = async (): Promise<void> => {
     try {
