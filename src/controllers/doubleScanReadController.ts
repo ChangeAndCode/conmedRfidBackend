@@ -11,6 +11,7 @@ import { createProgrammingRecordFromDoubleScanRead } from "../services/programmi
 import { parseDoubleScanReading, parseFirstScanBarcode } from "../services/gs1Parser";
 import {
     getDocumentId,
+    isServiceOrderProgrammingCapacityExceededError,
     validateDoubleScanServiceOrderForProgramming,
 } from "../services/serviceOrderService";
 import { normalizeOptionalText, normalizeRequiredText } from "../utils/requestNormalization";
@@ -223,7 +224,7 @@ export const createDoubleScanRead = async (
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : "No se pudo registrar la lectura doble";
-        res.status(400).json({ message });
+        res.status(isServiceOrderProgrammingCapacityExceededError(error) ? 409 : 400).json({ message });
     }
 };
 

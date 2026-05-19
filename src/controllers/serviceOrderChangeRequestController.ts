@@ -282,9 +282,6 @@ export const resolveServiceOrderChangeRequest = async (
             return;
         }
 
-        const nextFolio = hasOwn(req.body, "folio")
-            ? normalizeRequiredText(req.body.folio, "folio")
-            : serviceOrder.folio;
         const nextReadingMode = hasOwn(req.body, "readingMode")
             ? normalizeServiceOrderReadingMode(req.body.readingMode, true)
             : serviceOrder.readingMode;
@@ -313,7 +310,6 @@ export const resolveServiceOrderChangeRequest = async (
             rfidProgram: nextRfidProgram,
         });
 
-        serviceOrder.folio = nextFolio;
         serviceOrder.readingMode = nextReadingMode as ServiceOrderReadingMode;
         serviceOrder.quantity = nextQuantity;
         serviceOrder.status = nextStatus;

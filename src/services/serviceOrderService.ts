@@ -2,6 +2,7 @@ import { isValidObjectId } from "mongoose";
 import { getActiveGtinByValue } from "./gtinService";
 import { getActiveRfidProgramByValue } from "./rfidProgramService";
 import { getPartConfigByPartNumber, listActivePartConfigsByExpectedGtin } from "./partConfigService";
+import { ProgrammingRecordModel } from "../models/programmingRecord";
 import {
     ServiceOrder,
     ServiceOrderReadingMode,
@@ -20,6 +21,44 @@ type ServiceOrderFilters = {
     readingMode?: ServiceOrderReadingMode;
     status?: ServiceOrderStatus;
 };
+
+export type ServiceOrderProgress = {
+    programmedCount: number;
+    verifiedCount: number;
+    remainingToProgram: number;
+    remainingToVerify: number;
+};
+
+export const serviceOrderProgrammingCapacityExceededMessage = (
+    "La orden de servicio seleccionada ya alcanzo la cantidad objetivo de programacion"
+);
+
+export const isServiceOrderProgrammingCapacityExceededError = (error: unknown): boolean => {
+    return error instanceof Error && error.message === serviceOrderProgrammingCapacityExceededMessage;
+};
+
+type ServiceOrderProgressCount = {
+    _id: string;
+    programmedCount: number;
+    verifiedCount: number;
+};
+
+const serviceOrderFolioPrefixByReadingMode: Record<ServiceOrderReadingMode, string> = {
+    manual: "ML",
+    single_scan: "LS",
+    double_scan: "DL",
+};
+
+const serviceOrderFolioFormatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Mexico_City",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+});
 
 type DoubleScanServiceOrderReadingMatch = {
     gtin: string;
@@ -59,6 +98,160 @@ export const getDocumentId = (value: { _id?: unknown }): string => {
     }
 
     return "";
+};
+
+const isDuplicateKeyError = (error: unknown): boolean => {
+    return typeof error === "object" && error !== null && "code" in error && error.code === 11000;
+};
+
+const formatServiceOrderFolioTimestamp = (date: Date): string => {
+    const parts = serviceOrderFolioFormatter.formatToParts(date);
+    const values: Record<string, string> = {};
+
+    for (const part of parts) {
+        if (part.type !== "literal") {
+            values[part.type] = part.value;
+        }
+    }
+
+    return `${values.year}${values.month}${values.day}${values.hour}${values.minute}${values.second}`;
+};
+
+const buildServiceOrderFolio = (readingMode: ServiceOrderReadingMode, date: Date): string => {
+    return `${serviceOrderFolioPrefixByReadingMode[readingMode]}${formatServiceOrderFolioTimestamp(date)}`;
+};
+
+export const createServiceOrderWithGeneratedFolio = async (
+    payload: Omit<ServiceOrder, "folio">
+): Promise<ServiceOrder> => {
+    let currentDate = new Date();
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+        const folio = buildServiceOrderFolio(payload.readingMode, currentDate);
+
+        try {
+            return await ServiceOrderModel.create({
+                ...payload,
+                folio,
+            });
+        } catch (error) {
+            if (!isDuplicateKeyError(error)) {
+                throw error;
+            }
+
+            currentDate = new Date(currentDate.getTime() + 1000);
+        }
+    }
+
+    throw new Error("No se pudo generar un folio unico para la orden de servicio");
+};
+
+const createServiceOrderProgress = (
+    quantity: number,
+    programmedCount: number,
+    verifiedCount: number
+): ServiceOrderProgress => {
+    return {
+        programmedCount,
+        verifiedCount,
+        remainingToProgram: Math.max(quantity - programmedCount, 0),
+        remainingToVerify: Math.max(quantity - verifiedCount, 0),
+    };
+};
+
+const aggregateServiceOrderProgressCounts = async (
+    serviceOrderIds: string[]
+): Promise<ServiceOrderProgressCount[]> => {
+    if (serviceOrderIds.length === 0) {
+        return [];
+    }
+
+    return ProgrammingRecordModel.aggregate<ServiceOrderProgressCount>([
+        {
+            $match: {
+                serviceOrderId: {
+                    $in: serviceOrderIds,
+                },
+            },
+        },
+        {
+            $group: {
+                _id: "$serviceOrderId",
+                programmedCount: {
+                    $sum: {
+                        $cond: [
+                            {
+                                $in: ["$status", ["programmed", "verified"]],
+                            },
+                            1,
+                            0,
+                        ],
+                    },
+                },
+                verifiedCount: {
+                    $sum: {
+                        $cond: [
+                            {
+                                $eq: ["$status", "verified"],
+                            },
+                            1,
+                            0,
+                        ],
+                    },
+                },
+            },
+        },
+    ]);
+};
+
+export const getServiceOrderProgress = async (
+    serviceOrderId: string,
+    quantity: number
+): Promise<ServiceOrderProgress> => {
+    const [counts] = await aggregateServiceOrderProgressCounts([serviceOrderId]);
+
+    return createServiceOrderProgress(
+        quantity,
+        counts?.programmedCount ?? 0,
+        counts?.verifiedCount ?? 0
+    );
+};
+
+export const hasServiceOrderProgrammingCapacity = async (
+    serviceOrderId: string,
+    quantity: number
+): Promise<boolean> => {
+    const progress = await getServiceOrderProgress(serviceOrderId, quantity);
+    return progress.programmedCount < quantity;
+};
+
+export const getServiceOrderProgressMap = async (
+    serviceOrders: Array<ServiceOrder & { _id?: unknown }>
+): Promise<Record<string, ServiceOrderProgress>> => {
+    const serviceOrderIds = serviceOrders
+        .map((serviceOrder) => getDocumentId(serviceOrder))
+        .filter(Boolean);
+    const counts = await aggregateServiceOrderProgressCounts(serviceOrderIds);
+    const countsById = new Map(counts.map((count) => [count._id, count]));
+    const progressById: Record<string, ServiceOrderProgress> = {};
+
+    for (const serviceOrder of serviceOrders) {
+        const serviceOrderId = getDocumentId(serviceOrder);
+
+        if (!serviceOrderId) {
+            continue;
+        }
+
+        const resolvedCounts = countsById.get(serviceOrderId);
+
+        progressById[serviceOrderId] = createServiceOrderProgress(
+            serviceOrder.quantity,
+            resolvedCounts?.programmedCount ?? 0,
+            resolvedCounts?.verifiedCount ?? 0
+        );
+    }
+
+    return progressById;
 };
 
 export const listServiceOrders = async (filters: ServiceOrderFilters = {}): Promise<ServiceOrder[]> => {
@@ -233,6 +426,10 @@ const validateOpenServiceOrder = async (serviceOrderId: string): Promise<Service
 
     if (await hasPendingServiceOrderChangeRequest(serviceOrderId)) {
         throw new Error("La orden de servicio seleccionada tiene una solicitud pendiente");
+    }
+
+    if (!(await hasServiceOrderProgrammingCapacity(serviceOrderId, serviceOrder.quantity))) {
+        throw new Error(serviceOrderProgrammingCapacityExceededMessage);
     }
 
     return serviceOrder;

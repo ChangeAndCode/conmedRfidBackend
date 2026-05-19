@@ -231,7 +231,6 @@ Usa un `partNumber` manual sembrado por defecto, por ejemplo `EMVS353`.
 
 ```powershell
 $manualServiceOrderBody = @{
-  folio = "SO-MAN-001"
   readingMode = "manual"
   partNumber = "EMVS353"
   quantity = 50
@@ -251,9 +250,27 @@ $manualServiceOrderId
 Resultado esperado:
 
 - responde `201`
+- genera un `folio` automatico con formato `MLYYYYMMDDHHMMSS`
 - guarda `readingMode = manual`
 - guarda `partNumber = EMVS353`
 - no requiere `gtin`
+
+### 7.0 Confirmar progreso inicial de la orden manual
+
+```powershell
+Invoke-RestMethod -Method Get `
+  -Uri "$baseUrl/service-orders/$manualServiceOrderId" `
+  -Headers @{ Authorization = "Bearer $supervisorToken" }
+```
+
+Resultado esperado:
+
+- responde `200`
+- `data.quantity` debe coincidir con la orden creada
+- `data.programmedCount` debe ser `0`
+- `data.verifiedCount` debe ser `0`
+- `data.remainingToProgram` debe ser igual a `data.quantity`
+- `data.remainingToVerify` debe ser igual a `data.quantity`
 
 ## Paso 7.1 Crear orden single scan con supervisor
 
@@ -262,7 +279,6 @@ activa con `readingMode = single_scan`.
 
 ```powershell
 $singleScanServiceOrderBody = @{
-  folio = "SO-SGL-001"
   readingMode = "single_scan"
   partNumber = "SEA3700-SGL"
   quantity = 25
@@ -282,6 +298,7 @@ $singleScanServiceOrderId
 Resultado esperado:
 
 - responde `201`
+- genera un `folio` automatico con formato `LSYYYYMMDDHHMMSS`
 - guarda `readingMode = single_scan`
 - guarda el `partNumber` configurado
 - si la `part-config` single scan tiene `rfidProgram`, el backend puede heredarlo
@@ -290,7 +307,6 @@ Resultado esperado:
 
 ```powershell
 $doubleServiceOrderBody = @{
-  folio = "SO-DBL-001"
   readingMode = "double_scan"
   gtin = "00851136001566"
   quantity = 100
@@ -311,6 +327,7 @@ $doubleServiceOrderId
 Resultado esperado:
 
 - responde `201`
+- genera un `folio` automatico con formato `DLYYYYMMDDHHMMSS`
 - guarda `readingMode = double_scan`
 - guarda `gtin`
 - guarda `rfidProgram`
@@ -327,7 +344,7 @@ Invoke-RestMethod -Method Get `
 Resultado esperado:
 
 - responde `200`
-- regresa la orden `SO-MAN-001`
+- regresa la orden manual creada para `EMVS353`
 
 ### 9.1.1 Resolver orden single scan por numero de parte
 
@@ -339,7 +356,7 @@ Invoke-RestMethod -Method Get `
 Resultado esperado:
 
 - responde `200`
-- regresa la orden `SO-SGL-001`
+- regresa la orden single scan creada para `SEA3700-SGL`
 
 ### 9.2 Resolver orden doble por GTIN
 
@@ -351,7 +368,7 @@ Invoke-RestMethod -Method Get `
 Resultado esperado:
 
 - responde `200`
-- regresa la orden `SO-DBL-001`
+- regresa la orden double scan creada para el `GTIN` consultado
 
 ## Paso 10. Obtener opciones de numero de parte
 
@@ -550,6 +567,22 @@ Resultado esperado:
 - valida la orden por `partNumber`
 - crea un `programming_record` con `status = programmed`
 
+### 12.0 Confirmar avance despues de programar
+
+```powershell
+Invoke-RestMethod -Method Get `
+  -Uri "$baseUrl/service-orders/$manualServiceOrderId" `
+  -Headers @{ Authorization = "Bearer $supervisorToken" }
+```
+
+Resultado esperado:
+
+- responde `200`
+- `data.programmedCount` debe ser `1`
+- `data.verifiedCount` debe seguir en `0`
+- `data.remainingToProgram` debe disminuir en `1`
+- `data.remainingToVerify` debe permanecer igual a `data.quantity`
+
 ### 12.1 Caso negativo manual
 
 ```powershell
@@ -570,6 +603,90 @@ Resultado esperado:
 
 - responde `400`
 - indica que el numero de parte no coincide con la orden
+
+### 12.2 Caso de sobreprogramacion manual
+
+Crea una orden manual adicional con `quantity = 2` y usa el mismo `partNumber = EMVS353`.
+Registra dos lecturas manuales validas para esa orden y luego intenta una tercera.
+
+```powershell
+$manualLimitOrderBody = @{
+  readingMode = "manual"
+  partNumber = "EMVS353"
+  quantity = 2
+  notes = "orden manual para validar limite de programacion"
+} | ConvertTo-Json
+
+$manualLimitOrder = Invoke-RestMethod -Method Post `
+  -Uri "$baseUrl/service-orders" `
+  -Headers @{ Authorization = "Bearer $supervisorToken" } `
+  -ContentType "application/json" `
+  -Body $manualLimitOrderBody
+
+$manualLimitOrderId = $manualLimitOrder.data._id
+
+$manualLimitReadBody1 = @{
+  serviceOrderId = $manualLimitOrderId
+  partNumber = "EMVS353"
+  rfidProgram = "EMVS353"
+  lot = "MANUAL-LIMIT-001"
+  manufactureDate = "240101"
+  rawReference = "500322 LIMIT 1"
+} | ConvertTo-Json
+
+$manualLimitReadBody2 = @{
+  serviceOrderId = $manualLimitOrderId
+  partNumber = "EMVS353"
+  rfidProgram = "EMVS353"
+  lot = "MANUAL-LIMIT-002"
+  manufactureDate = "240101"
+  rawReference = "500322 LIMIT 2"
+} | ConvertTo-Json
+
+$manualLimitReadBody3 = @{
+  serviceOrderId = $manualLimitOrderId
+  partNumber = "EMVS353"
+  rfidProgram = "EMVS353"
+  lot = "MANUAL-LIMIT-003"
+  manufactureDate = "240101"
+  rawReference = "500322 LIMIT 3"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post `
+  -Uri "$baseUrl/manual-reads" `
+  -ContentType "application/json" `
+  -Body $manualLimitReadBody1
+
+Invoke-RestMethod -Method Post `
+  -Uri "$baseUrl/manual-reads" `
+  -ContentType "application/json" `
+  -Body $manualLimitReadBody2
+
+Invoke-RestMethod -Method Post `
+  -Uri "$baseUrl/manual-reads" `
+  -ContentType "application/json" `
+  -Body $manualLimitReadBody3
+```
+
+Resultado esperado:
+
+- la primera y segunda lectura responden `201`
+- la tercera lectura responde `409`
+- el mensaje indica que la orden ya alcanzo la cantidad objetivo de programacion
+
+Verificacion del progreso:
+
+```powershell
+Invoke-RestMethod -Method Get `
+  -Uri "$baseUrl/service-orders/$manualLimitOrderId" `
+  -Headers @{ Authorization = "Bearer $supervisorToken" }
+```
+
+Resultado esperado:
+
+- `data.programmedCount` debe ser `2`
+- `data.remainingToProgram` debe ser `0`
+- `data.verifiedCount` debe seguir en `0`
 
 ## Paso 13. Lectura doble ligada a orden doble
 
@@ -653,7 +770,7 @@ Resultado esperado:
 - responde `200`
 - `data.resolutionType` debe ser `single_match`
 - `data.matchedBy` debe ser `manual_raw_reference`
-- `data.candidates[0].serviceOrderFolio` debe ser `SO-MAN-001`
+- `data.candidates[0].serviceOrderFolio` debe coincidir con el folio automatico de la orden manual creada
 - `data.candidates[0].partNumber` debe ser `EMVS353`
 
 ### 14.3 Resolver programacion single scan por GS1

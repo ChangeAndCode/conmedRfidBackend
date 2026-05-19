@@ -3,7 +3,11 @@ import { isValidObjectId } from "mongoose";
 import { ManualRead, ManualReadModel, manualReadStatuses } from "../models/manualRead";
 import { getPartConfigByPartNumber } from "../services/partConfigService";
 import { createProgrammingRecordFromManualRead } from "../services/programmingRecordService";
-import { getDocumentId, validateManualServiceOrderForProgramming } from "../services/serviceOrderService";
+import {
+    getDocumentId,
+    isServiceOrderProgrammingCapacityExceededError,
+    validateManualServiceOrderForProgramming,
+} from "../services/serviceOrderService";
 import { normalizeOptionalText, normalizeRequiredText } from "../utils/requestNormalization";
 
 type CreateManualReadBody = {
@@ -106,7 +110,7 @@ export const createManualRead = async (
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : "No se pudo registrar la lectura manual";
-        res.status(400).json({ message });
+        res.status(isServiceOrderProgrammingCapacityExceededError(error) ? 409 : 400).json({ message });
     }
 };
 

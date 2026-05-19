@@ -13,13 +13,17 @@ import {
     listActivePartConfigsByExpectedGtin,
 } from "../services/partConfigService";
 import {
+    createServiceOrderWithGeneratedFolio,
     getDocumentId,
     getServiceOrderById,
+    getServiceOrderProgress,
+    getServiceOrderProgressMap,
     hasPendingServiceOrderChangeRequest,
     GtinBasedServiceOrderReadingMode,
     listOpenServiceOrdersByGtin,
     listOpenServiceOrdersByPartNumber,
     PartNumberBasedServiceOrderReadingMode,
+    ServiceOrderProgress,
     listServiceOrders,
     validateServiceOrderCatalogReferences,
 } from "../services/serviceOrderService";
@@ -48,6 +52,11 @@ type ServiceOrderFilters = {
     gtin?: string;
     status?: ServiceOrderStatus;
 };
+
+type ServiceOrderAuditFields = Pick<
+    ServiceOrder,
+    "createdByUserId" | "createdByUsername" | "updatedByUserId" | "updatedByUsername"
+>;
 
 const hasOwn = (value: object, key: string): boolean => Object.prototype.hasOwnProperty.call(value, key);
 
@@ -172,12 +181,16 @@ const normalizeQuantity = (value: unknown, required = false): number | undefined
     return undefined;
 };
 
-const applyAuditFields = (serviceOrder: ServiceOrder): void => {
+const applyAuditFields = (serviceOrder: ServiceOrderAuditFields): void => {
     delete serviceOrder.updatedByUserId;
     delete serviceOrder.updatedByUsername;
 };
 
-const assignAuditFields = (serviceOrder: ServiceOrder, req: Pick<Request, "authUser">, isCreate = false): void => {
+const assignAuditFields = (
+    serviceOrder: ServiceOrderAuditFields,
+    req: Pick<Request, "authUser">,
+    isCreate = false
+): void => {
     const authUser = req.authUser;
 
     if (!authUser) {
@@ -211,6 +224,23 @@ const toPartConfigOption = (partConfig: {
         rfidProgram: partConfig.rfidProgram,
         filterLabel: partConfig.filterLabel,
         expectedLotLength: partConfig.expectedLotLength,
+    };
+};
+
+const toServiceOrderResponse = (
+    serviceOrder: ServiceOrder & { _id?: unknown; toObject?: () => Record<string, unknown> },
+    progress: ServiceOrderProgress
+): Record<string, unknown> => {
+    const base = typeof serviceOrder.toObject === "function"
+        ? serviceOrder.toObject()
+        : { ...serviceOrder };
+
+    return {
+        ...base,
+        programmedCount: progress.programmedCount,
+        verifiedCount: progress.verifiedCount,
+        remainingToProgram: progress.remainingToProgram,
+        remainingToVerify: progress.remainingToVerify,
     };
 };
 
@@ -248,10 +278,27 @@ export const listServiceOrdersHandler = async (req: Request, res: Response): Pro
         }
 
         const serviceOrders = await listServiceOrders(filters);
+        const progressById = await getServiceOrderProgressMap(serviceOrders as Array<ServiceOrder & { _id?: unknown }>);
 
         res.json({
             count: serviceOrders.length,
-            data: serviceOrders,
+            data: serviceOrders.map((serviceOrder) => {
+                const typedServiceOrder = serviceOrder as ServiceOrder & {
+                    _id?: unknown;
+                    toObject?: () => Record<string, unknown>;
+                };
+                const serviceOrderId = getDocumentId(typedServiceOrder);
+                const progress = serviceOrderId && progressById[serviceOrderId]
+                    ? progressById[serviceOrderId]
+                    : {
+                        programmedCount: 0,
+                        verifiedCount: 0,
+                        remainingToProgram: serviceOrder.quantity,
+                        remainingToVerify: serviceOrder.quantity,
+                    };
+
+                return toServiceOrderResponse(typedServiceOrder, progress);
+            }),
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : "No se pudieron listar las ordenes de servicio";
@@ -274,7 +321,14 @@ export const getServiceOrderByIdHandler = async (req: Request<{ id: string }>, r
         return;
     }
 
-    res.json({ data: serviceOrder });
+    const progress = await getServiceOrderProgress(id, serviceOrder.quantity);
+
+    res.json({
+        data: toServiceOrderResponse(
+            serviceOrder as ServiceOrder & { _id?: unknown; toObject?: () => Record<string, unknown> },
+            progress
+        ),
+    });
 };
 
 export const createServiceOrder = async (
@@ -289,8 +343,7 @@ export const createServiceOrder = async (
             gtin: normalizeGtin(req.body.gtin),
             rfidProgram: normalizeRfidProgram(req.body.rfidProgram),
         });
-        const payload: ServiceOrder = {
-            folio: normalizeRequiredText(req.body.folio, "folio"),
+        const payload: Omit<ServiceOrder, "folio"> = {
             readingMode,
             quantity: normalizeQuantity(req.body.quantity, true) as number,
             status: "open",
@@ -315,7 +368,7 @@ export const createServiceOrder = async (
 
         assignAuditFields(payload, req, true);
 
-        const serviceOrder = await ServiceOrderModel.create(payload);
+        const serviceOrder = await createServiceOrderWithGeneratedFolio(payload);
 
         res.status(201).json({
             message: "Orden de servicio creada",
@@ -357,9 +410,6 @@ export const updateServiceOrder = async (
             return;
         }
 
-        const nextFolio = hasOwn(req.body, "folio")
-            ? normalizeRequiredText(req.body.folio, "folio")
-            : serviceOrder.folio;
         const nextReadingMode = hasOwn(req.body, "readingMode")
             ? normalizeServiceOrderReadingMode(req.body.readingMode, true)
             : serviceOrder.readingMode;
@@ -389,7 +439,6 @@ export const updateServiceOrder = async (
             rfidProgram: nextRfidProgram,
         });
 
-        serviceOrder.folio = nextFolio;
         serviceOrder.readingMode = nextReadingMode as ServiceOrderReadingMode;
         serviceOrder.quantity = nextQuantity as number;
         serviceOrder.status = nextStatus as ServiceOrderStatus;

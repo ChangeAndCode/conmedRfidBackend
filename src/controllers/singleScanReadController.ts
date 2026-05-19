@@ -6,6 +6,7 @@ import { createProgrammingRecordFromSingleScanRead } from "../services/programmi
 import { parseSingleScanReading } from "../services/gs1Parser";
 import {
     getDocumentId,
+    isServiceOrderProgrammingCapacityExceededError,
     listOpenServiceOrdersByGtin,
     validateSingleScanServiceOrderForProgramming,
 } from "../services/serviceOrderService";
@@ -147,7 +148,7 @@ export const createSingleScanRead = async (
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : "No se pudo registrar la lectura single scan";
-        res.status(400).json({ message });
+        res.status(isServiceOrderProgrammingCapacityExceededError(error) ? 409 : 400).json({ message });
     }
 };
 
