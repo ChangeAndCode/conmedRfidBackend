@@ -14,7 +14,9 @@ import {
     serviceOrderReadingModes,
 } from "../models/serviceOrder";
 import {
+    assertServiceOrderQuantityCanBeUpdated,
     hasPendingServiceOrderChangeRequest,
+    isServiceOrderQuantityBelowProgressError,
     validateServiceOrderCatalogReferences,
 } from "../services/serviceOrderService";
 import {
@@ -310,6 +312,10 @@ export const resolveServiceOrderChangeRequest = async (
             rfidProgram: nextRfidProgram,
         });
 
+        if (nextQuantity !== serviceOrder.quantity) {
+            await assertServiceOrderQuantityCanBeUpdated(serviceOrder.id, nextQuantity);
+        }
+
         serviceOrder.readingMode = nextReadingMode as ServiceOrderReadingMode;
         serviceOrder.quantity = nextQuantity;
         serviceOrder.status = nextStatus;
@@ -375,6 +381,11 @@ export const resolveServiceOrderChangeRequest = async (
             },
         });
     } catch (error) {
+        if (isServiceOrderQuantityBelowProgressError(error)) {
+            res.status(409).json({ message: (error as Error).message });
+            return;
+        }
+
         const message = error instanceof Error ? error.message : "No se pudo resolver la solicitud de cambio";
         res.status(400).json({ message });
     }

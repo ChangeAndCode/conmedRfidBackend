@@ -37,6 +37,14 @@ export const isServiceOrderProgrammingCapacityExceededError = (error: unknown): 
     return error instanceof Error && error.message === serviceOrderProgrammingCapacityExceededMessage;
 };
 
+export const serviceOrderQuantityBelowProgressMessage = (
+    "La cantidad no puede ser menor a la cantidad ya programada o verificada en la orden de servicio"
+);
+
+export const isServiceOrderQuantityBelowProgressError = (error: unknown): boolean => {
+    return error instanceof Error && error.message === serviceOrderQuantityBelowProgressMessage;
+};
+
 type ServiceOrderProgressCount = {
     _id: string;
     programmedCount: number;
@@ -223,6 +231,32 @@ export const hasServiceOrderProgrammingCapacity = async (
 ): Promise<boolean> => {
     const progress = await getServiceOrderProgress(serviceOrderId, quantity);
     return progress.programmedCount < quantity;
+};
+
+export const assertServiceOrderQuantityCanBeUpdated = async (
+    serviceOrderId: string,
+    quantity: number
+): Promise<void> => {
+    const progress = await getServiceOrderProgress(serviceOrderId, quantity);
+
+    if (quantity < progress.programmedCount || quantity < progress.verifiedCount) {
+        throw new Error(serviceOrderQuantityBelowProgressMessage);
+    }
+};
+
+export const closeServiceOrderIfVerificationCompleted = async (serviceOrderId: string): Promise<void> => {
+    const serviceOrder = await ServiceOrderModel.findById(serviceOrderId);
+
+    if (!serviceOrder) {
+        throw new Error("La orden de servicio asociada no existe");
+    }
+
+    const progress = await getServiceOrderProgress(serviceOrderId, serviceOrder.quantity);
+
+    if (progress.verifiedCount >= serviceOrder.quantity && serviceOrder.status !== "closed") {
+        serviceOrder.status = "closed";
+        await serviceOrder.save();
+    }
 };
 
 export const getServiceOrderProgressMap = async (

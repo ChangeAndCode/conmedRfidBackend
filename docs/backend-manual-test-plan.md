@@ -17,6 +17,7 @@ $supervisorToken = ""
 $manualServiceOrderId = ""
 $singleScanServiceOrderId = ""
 $doubleServiceOrderId = ""
+$manualLimitOrderId = ""
 $manualChangeRequestId = ""
 $doubleChangeRequestId = ""
 $doubleScanPartConfigId = ""
@@ -688,6 +689,48 @@ Resultado esperado:
 - `data.remainingToProgram` debe ser `0`
 - `data.verifiedCount` debe seguir en `0`
 
+### 12.3 No permitir bajar quantity por debajo del avance real
+
+Con la misma orden `manualLimitOrderId`, intenta bajar `quantity` a `1`.
+
+```powershell
+$manualLimitQuantityUpdateBody = @{
+  quantity = 1
+  notes = "intento invalido para bajar quantity debajo de lo ya programado"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Patch `
+  -Uri "$baseUrl/service-orders/$manualLimitOrderId" `
+  -Headers @{ Authorization = "Bearer $supervisorToken" } `
+  -ContentType "application/json" `
+  -Body $manualLimitQuantityUpdateBody
+```
+
+Resultado esperado:
+
+- responde `409`
+- el mensaje indica que la cantidad no puede ser menor a lo ya programado o verificado
+
+### 12.4 Si quantity se mantiene o sube, la actualizacion si debe pasar
+
+```powershell
+$manualLimitQuantityValidUpdateBody = @{
+  quantity = 2
+  notes = "actualizacion valida conservando el limite actual"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Patch `
+  -Uri "$baseUrl/service-orders/$manualLimitOrderId" `
+  -Headers @{ Authorization = "Bearer $supervisorToken" } `
+  -ContentType "application/json" `
+  -Body $manualLimitQuantityValidUpdateBody
+```
+
+Resultado esperado:
+
+- responde `200`
+- `data.quantity` debe permanecer en `2`
+
 ## Paso 13. Lectura doble ligada a orden doble
 
 Codigos de ejemplo:
@@ -842,6 +885,82 @@ Resultado esperado:
 - `data.verifiedAt` debe venir informado
 - `data.verificationData.rawReference` debe ser `500322 A`
 - `data.verificationMatchedBy` debe ser `manual_raw_reference`
+
+### 15.1.1 Verificar primer registro de la orden con limite y confirmar que sigue abierta
+
+Primero resuelve la programacion `500322 LIMIT 1` y toma el `_id` del candidato.
+
+```powershell
+$manualLimitProgrammingResolve1Body = @{
+  mode = "manual"
+  rawReference = "500322 LIMIT 1"
+} | ConvertTo-Json
+
+$manualLimitProgrammingResolve1 = Invoke-RestMethod -Method Post `
+  -Uri "$baseUrl/programming-records/resolve" `
+  -ContentType "application/json" `
+  -Body $manualLimitProgrammingResolve1Body
+
+$manualLimitProgrammingRecordId1 = $manualLimitProgrammingResolve1.data.candidates[0]._id
+
+$manualLimitProgrammingVerify1Body = @{
+  rawReference = "500322 LIMIT 1"
+  verificationNotes = "primera verificacion de la orden con limite"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post `
+  -Uri "$baseUrl/programming-records/$manualLimitProgrammingRecordId1/verify" `
+  -ContentType "application/json" `
+  -Body $manualLimitProgrammingVerify1Body
+
+Invoke-RestMethod -Method Get `
+  -Uri "$baseUrl/service-orders/$manualLimitOrderId" `
+  -Headers @{ Authorization = "Bearer $supervisorToken" }
+```
+
+Resultado esperado:
+
+- la verificacion responde `200`
+- la orden sigue con `data.status = open`
+- `data.verifiedCount` debe ser `1`
+- `data.remainingToVerify` debe ser `1`
+
+### 15.1.2 Verificar el ultimo registro y confirmar cierre automatico
+
+```powershell
+$manualLimitProgrammingResolve2Body = @{
+  mode = "manual"
+  rawReference = "500322 LIMIT 2"
+} | ConvertTo-Json
+
+$manualLimitProgrammingResolve2 = Invoke-RestMethod -Method Post `
+  -Uri "$baseUrl/programming-records/resolve" `
+  -ContentType "application/json" `
+  -Body $manualLimitProgrammingResolve2Body
+
+$manualLimitProgrammingRecordId2 = $manualLimitProgrammingResolve2.data.candidates[0]._id
+
+$manualLimitProgrammingVerify2Body = @{
+  rawReference = "500322 LIMIT 2"
+  verificationNotes = "segunda verificacion de la orden con limite"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post `
+  -Uri "$baseUrl/programming-records/$manualLimitProgrammingRecordId2/verify" `
+  -ContentType "application/json" `
+  -Body $manualLimitProgrammingVerify2Body
+
+Invoke-RestMethod -Method Get `
+  -Uri "$baseUrl/service-orders/$manualLimitOrderId" `
+  -Headers @{ Authorization = "Bearer $supervisorToken" }
+```
+
+Resultado esperado:
+
+- la verificacion responde `200`
+- la orden cambia automaticamente a `data.status = closed`
+- `data.verifiedCount` debe ser `2`
+- `data.remainingToVerify` debe ser `0`
 
 ### 15.2 Confirmar verificacion single scan
 

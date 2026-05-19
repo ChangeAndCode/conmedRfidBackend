@@ -13,6 +13,7 @@ import {
     listActivePartConfigsByExpectedGtin,
 } from "../services/partConfigService";
 import {
+    assertServiceOrderQuantityCanBeUpdated,
     createServiceOrderWithGeneratedFolio,
     getDocumentId,
     getServiceOrderById,
@@ -20,6 +21,7 @@ import {
     getServiceOrderProgressMap,
     hasPendingServiceOrderChangeRequest,
     GtinBasedServiceOrderReadingMode,
+    isServiceOrderQuantityBelowProgressError,
     listOpenServiceOrdersByGtin,
     listOpenServiceOrdersByPartNumber,
     PartNumberBasedServiceOrderReadingMode,
@@ -439,6 +441,10 @@ export const updateServiceOrder = async (
             rfidProgram: nextRfidProgram,
         });
 
+        if (nextQuantity !== serviceOrder.quantity) {
+            await assertServiceOrderQuantityCanBeUpdated(id, nextQuantity as number);
+        }
+
         serviceOrder.readingMode = nextReadingMode as ServiceOrderReadingMode;
         serviceOrder.quantity = nextQuantity as number;
         serviceOrder.status = nextStatus as ServiceOrderStatus;
@@ -475,6 +481,11 @@ export const updateServiceOrder = async (
             data: serviceOrder,
         });
     } catch (error) {
+        if (isServiceOrderQuantityBelowProgressError(error)) {
+            res.status(409).json({ message: (error as Error).message });
+            return;
+        }
+
         const message = isDuplicateKeyError(error)
             ? "Ya existe una orden de servicio con ese folio"
             : error instanceof Error

@@ -11,7 +11,7 @@ import {
 import { SingleScanRead, SingleScanReadModel } from "../models/singleScanRead";
 import { DoubleScanReadModel } from "../models/doubleScanRead";
 import { parseDoubleScanVerificationReading, parseSingleScanReading } from "./gs1Parser";
-import { getDocumentId } from "./serviceOrderService";
+import { closeServiceOrderIfVerificationCompleted, getDocumentId } from "./serviceOrderService";
 
 type ProgrammingRecordQuery = {
     mode?: ProgrammingRecordMode;
@@ -203,9 +203,12 @@ const buildVerificationData = (
     return Object.keys(payload).length > 0 ? payload : undefined;
 };
 
-const updateSourceReadStatusToVerified = async (record: ProgrammingRecord): Promise<void> => {
+const updateSourceReadStatus = async (
+    record: ProgrammingRecord,
+    status: "programmed" | "verified"
+): Promise<void> => {
     if (record.sourceType === "manual_read") {
-        const updated = await ManualReadModel.findByIdAndUpdate(record.sourceReadId, { status: "verified" }, { new: true });
+        const updated = await ManualReadModel.findByIdAndUpdate(record.sourceReadId, { status }, { new: true });
 
         if (!updated) {
             throw new Error("La lectura manual asociada no existe");
@@ -217,7 +220,7 @@ const updateSourceReadStatusToVerified = async (record: ProgrammingRecord): Prom
     if (record.sourceType === "single_scan_read") {
         const updated = await SingleScanReadModel.findByIdAndUpdate(
             record.sourceReadId,
-            { status: "verified" },
+            { status },
             { new: true }
         );
 
@@ -228,7 +231,7 @@ const updateSourceReadStatusToVerified = async (record: ProgrammingRecord): Prom
         return;
     }
 
-    const updated = await DoubleScanReadModel.findByIdAndUpdate(record.sourceReadId, { status: "verified" }, { new: true });
+    const updated = await DoubleScanReadModel.findByIdAndUpdate(record.sourceReadId, { status }, { new: true });
 
     if (!updated) {
         throw new Error("La lectura doble asociada no existe");
@@ -404,7 +407,11 @@ export const verifyProgrammingRecord = async (
     await programmingRecord.save();
 
     try {
-        await updateSourceReadStatusToVerified(programmingRecord);
+        await updateSourceReadStatus(programmingRecord, "verified");
+
+        if (programmingRecord.serviceOrderId) {
+            await closeServiceOrderIfVerificationCompleted(programmingRecord.serviceOrderId);
+        }
     } catch (error) {
         programmingRecord.status = "programmed";
         delete programmingRecord.verifiedAt;
@@ -412,6 +419,7 @@ export const verifyProgrammingRecord = async (
         delete programmingRecord.verificationMatchedBy;
         delete programmingRecord.verificationNotes;
         await programmingRecord.save();
+        await updateSourceReadStatus(programmingRecord, "programmed");
         throw error;
     }
 
