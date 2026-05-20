@@ -15,6 +15,7 @@ import programmingRecordRouter from "./routes/programmingRecordRoutes";
 import rfidProgramRouter from "./routes/rfidProgramRoutes";
 import serviceOrderRouter from "./routes/serviceOrderRoutes";
 import singleScanReadRouter from "./routes/singleScanReadRoutes";
+import verificationReportRouter from "./routes/verificationReportRoutes";
 import { seedGtinsFromPartConfigs } from "./services/gtinService";
 import { seedDefaultPartConfigs } from "./services/partConfigService";
 import { seedRfidProgramsFromPartConfigs } from "./services/rfidProgramService";
@@ -76,6 +77,7 @@ app.use("/api/part-configs", partConfigRouter);
 app.use("/api/gtins", gtinRouter);
 app.use("/api/rfid-programs", rfidProgramRouter);
 app.use("/api/service-orders", serviceOrderRouter);
+app.use("/api/verification-reports", verificationReportRouter);
 app.use("/api/auth", authRouter);
 app.use("/api/users", userRoutes);
 

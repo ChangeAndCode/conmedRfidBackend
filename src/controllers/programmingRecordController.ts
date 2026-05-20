@@ -269,7 +269,7 @@ export const verifyProgrammingRecordHandler = async (
             return;
         }
 
-        const programmingRecord = await verifyProgrammingRecord({
+        const verificationResult = await verifyProgrammingRecord({
             programmingRecordId: id,
             rawReference: normalizeOptionalText(req.body.rawReference),
             rawScan: normalizeOptionalText(req.body.rawScan),
@@ -280,7 +280,7 @@ export const verifyProgrammingRecordHandler = async (
 
         res.json({
             message: "Programming record verificado correctamente",
-            data: programmingRecord,
+            data: verificationResult,
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : "No se pudo verificar el programming record";

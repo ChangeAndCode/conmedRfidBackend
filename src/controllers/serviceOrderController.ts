@@ -17,6 +17,7 @@ import {
     createServiceOrderWithGeneratedFolio,
     getDocumentId,
     getServiceOrderById,
+    getServiceOrdersAvailableForProgramming,
     getServiceOrderProgress,
     getServiceOrderProgressMap,
     hasPendingServiceOrderChangeRequest,
@@ -239,6 +240,26 @@ const toServiceOrderResponse = (
 
     return {
         ...base,
+        programmedCount: progress.programmedCount,
+        verifiedCount: progress.verifiedCount,
+        remainingToProgram: progress.remainingToProgram,
+        remainingToVerify: progress.remainingToVerify,
+    };
+};
+
+const toOpenServiceOrderProgrammingResponse = (
+    serviceOrder: ServiceOrder & { _id?: unknown },
+    progress: ServiceOrderProgress
+): Record<string, unknown> => {
+    return {
+        _id: getDocumentId(serviceOrder),
+        folio: serviceOrder.folio,
+        readingMode: serviceOrder.readingMode,
+        partNumber: serviceOrder.partNumber,
+        gtin: serviceOrder.gtin,
+        rfidProgram: serviceOrder.rfidProgram,
+        quantity: serviceOrder.quantity,
+        status: serviceOrder.status,
         programmedCount: progress.programmedCount,
         verifiedCount: progress.verifiedCount,
         remainingToProgram: progress.remainingToProgram,
@@ -500,10 +521,15 @@ export const listOpenServiceOrdersByGtinHandler = async (req: Request, res: Resp
         const gtin = normalizeGtin(req.query.gtin, true) as string;
         const readingMode = normalizeGtinResolutionReadingMode(req.query.readingMode) ?? "double_scan";
         const serviceOrders = await listOpenServiceOrdersByGtin(gtin, readingMode);
+        const availableServiceOrders = await getServiceOrdersAvailableForProgramming(
+            serviceOrders as Array<ServiceOrder & { _id?: unknown }>
+        );
 
         res.json({
-            count: serviceOrders.length,
-            data: serviceOrders,
+            count: availableServiceOrders.length,
+            data: availableServiceOrders.map(({ serviceOrder, progress }) =>
+                toOpenServiceOrderProgrammingResponse(serviceOrder, progress)
+            ),
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : "No se pudieron resolver las ordenes de servicio";
@@ -516,10 +542,15 @@ export const listOpenServiceOrdersByPartNumberHandler = async (req: Request, res
         const partNumber = normalizePartNumber(req.query.partNumber, true) as string;
         const readingMode = normalizePartNumberResolutionReadingMode(req.query.readingMode) ?? "manual";
         const serviceOrders = await listOpenServiceOrdersByPartNumber(partNumber, readingMode);
+        const availableServiceOrders = await getServiceOrdersAvailableForProgramming(
+            serviceOrders as Array<ServiceOrder & { _id?: unknown }>
+        );
 
         res.json({
-            count: serviceOrders.length,
-            data: serviceOrders,
+            count: availableServiceOrders.length,
+            data: availableServiceOrders.map(({ serviceOrder, progress }) =>
+                toOpenServiceOrderProgrammingResponse(serviceOrder, progress)
+            ),
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : "No se pudieron resolver las ordenes de servicio";
@@ -536,18 +567,15 @@ export const listOpenManualServiceOrdersHandler = async (req: Request, res: Resp
                 readingMode: "manual",
                 status: "open",
             });
+        const availableServiceOrders = await getServiceOrdersAvailableForProgramming(
+            serviceOrders as Array<ServiceOrder & { _id?: unknown }>
+        );
 
         res.json({
-            count: serviceOrders.length,
-            data: serviceOrders.map((serviceOrder) => ({
-                _id: getDocumentId(serviceOrder as typeof serviceOrder & { _id?: unknown }),
-                folio: serviceOrder.folio,
-                readingMode: serviceOrder.readingMode,
-                partNumber: serviceOrder.partNumber,
-                rfidProgram: serviceOrder.rfidProgram,
-                quantity: serviceOrder.quantity,
-                status: serviceOrder.status,
-            })),
+            count: availableServiceOrders.length,
+            data: availableServiceOrders.map(({ serviceOrder, progress }) =>
+                toOpenServiceOrderProgrammingResponse(serviceOrder, progress)
+            ),
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : "No se pudieron listar las ordenes manuales abiertas";

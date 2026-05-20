@@ -21,6 +21,7 @@ $manualLimitOrderId = ""
 $manualChangeRequestId = ""
 $doubleChangeRequestId = ""
 $doubleScanPartConfigId = ""
+$verificationReportId = ""
 ```
 
 ## Paso 1. Crear primer admin
@@ -630,7 +631,7 @@ $manualLimitReadBody1 = @{
   serviceOrderId = $manualLimitOrderId
   partNumber = "EMVS353"
   rfidProgram = "EMVS353"
-  lot = "MANUAL-LIMIT-001"
+  lot = "MANUAL-LIMIT-LOT"
   manufactureDate = "240101"
   rawReference = "500322 LIMIT 1"
 } | ConvertTo-Json
@@ -639,7 +640,7 @@ $manualLimitReadBody2 = @{
   serviceOrderId = $manualLimitOrderId
   partNumber = "EMVS353"
   rfidProgram = "EMVS353"
-  lot = "MANUAL-LIMIT-002"
+  lot = "MANUAL-LIMIT-LOT"
   manufactureDate = "240101"
   rawReference = "500322 LIMIT 2"
 } | ConvertTo-Json
@@ -648,7 +649,7 @@ $manualLimitReadBody3 = @{
   serviceOrderId = $manualLimitOrderId
   partNumber = "EMVS353"
   rfidProgram = "EMVS353"
-  lot = "MANUAL-LIMIT-003"
+  lot = "MANUAL-LIMIT-LOT"
   manufactureDate = "240101"
   rawReference = "500322 LIMIT 3"
 } | ConvertTo-Json
@@ -674,6 +675,7 @@ Resultado esperado:
 - la primera y segunda lectura responden `201`
 - la tercera lectura responde `409`
 - el mensaje indica que la orden ya alcanzo la cantidad objetivo de programacion
+- usa el mismo `lot` y `manufactureDate` en las dos lecturas validas para que luego la orden pueda generar un solo reporte
 
 Verificacion del progreso:
 
@@ -1043,3 +1045,163 @@ Resultado esperado:
 
 - responde `409`
 - indica que la evidencia de verificacion no coincide con el `programming_record` seleccionado
+
+## Paso 16. Generar y administrar reporte de verificacion
+
+Este paso usa la orden `manualLimitOrderId` ya cerrada en `15.1.2`.
+
+### 16.1 Generar reporte de verificacion
+
+```powershell
+$verificationReportBody = @{
+  serviceOrderId = $manualLimitOrderId
+  manufacturingRepresentativeName = "Maria Manufactura"
+  qualityRepresentativeName = "Carlos Calidad"
+} | ConvertTo-Json
+
+$verificationReportResponse = Invoke-RestMethod -Method Post `
+  -Uri "$baseUrl/verification-reports" `
+  -Headers @{ Authorization = "Bearer $supervisorToken" } `
+  -ContentType "application/json" `
+  -Body $verificationReportBody
+
+$verificationReportId = $verificationReportResponse.data._id
+$verificationReportId
+```
+
+Resultado esperado:
+
+- responde `201`
+- crea un solo reporte para la orden cerrada
+- `data.serviceOrderId` debe coincidir con `manualLimitOrderId`
+- `data.status` debe ser `generated`
+- `data.partNumber` debe ser `EMVS353`
+- `data.lot` debe ser `MANUAL-LIMIT-LOT`
+- `data.manufactureDate` debe venir informado
+- `data.rows.Count` debe ser `2`
+- `data.manufacturingRepresentativeName` y `data.qualityRepresentativeName` deben quedar guardados
+
+Nota:
+
+- para que este reporte se genere, los registros verificados de la orden deben compartir el mismo `partNumber`, `lot` y `manufactureDate`
+
+### 16.2 No permitir generar el reporte una segunda vez
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri "$baseUrl/verification-reports" `
+  -Headers @{ Authorization = "Bearer $supervisorToken" } `
+  -ContentType "application/json" `
+  -Body $verificationReportBody
+```
+
+Resultado esperado:
+
+- responde `409`
+- indica que la orden ya tiene un reporte generado
+
+### 16.3 Consultar reporte por id
+
+```powershell
+Invoke-RestMethod -Method Get `
+  -Uri "$baseUrl/verification-reports/$verificationReportId" `
+  -Headers @{ Authorization = "Bearer $supervisorToken" }
+```
+
+Resultado esperado:
+
+- responde `200`
+- conserva el snapshot del encabezado y las `2` filas verificadas
+- `data.history[0].type` debe ser `generated`
+
+### 16.4 Marcar impresion interrumpida
+
+```powershell
+$verificationReportInterruptedBody = @{
+  notes = "Fallo de tinta a mitad de la impresion"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post `
+  -Uri "$baseUrl/verification-reports/$verificationReportId/print-interrupted" `
+  -Headers @{ Authorization = "Bearer $supervisorToken" } `
+  -ContentType "application/json" `
+  -Body $verificationReportInterruptedBody
+```
+
+Resultado esperado:
+
+- responde `200`
+- `data.status` debe cambiar a `print_interrupted`
+- `data.lastPrintInterruptedAt` debe venir informado
+
+### 16.5 Confirmar impresion completada
+
+```powershell
+$verificationReportPrintedBody = @{
+  notes = "Impresion completada correctamente"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post `
+  -Uri "$baseUrl/verification-reports/$verificationReportId/print-completed" `
+  -Headers @{ Authorization = "Bearer $supervisorToken" } `
+  -ContentType "application/json" `
+  -Body $verificationReportPrintedBody
+```
+
+Resultado esperado:
+
+- responde `200`
+- `data.status` debe cambiar a `printed`
+- `data.lastPrintedAt` debe venir informado
+
+### 16.6 Supervisor no puede reimprimir
+
+```powershell
+$verificationReportReprintBody = @{
+  notes = "Intento de reimpresion por supervisor"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post `
+  -Uri "$baseUrl/verification-reports/$verificationReportId/reprint" `
+  -Headers @{ Authorization = "Bearer $supervisorToken" } `
+  -ContentType "application/json" `
+  -Body $verificationReportReprintBody
+```
+
+Resultado esperado:
+
+- responde `403`
+
+### 16.7 Admin si puede reimprimir
+
+```powershell
+$verificationReportAdminReprintBody = @{
+  notes = "Reimpresion autorizada por administrador"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post `
+  -Uri "$baseUrl/verification-reports/$verificationReportId/reprint" `
+  -Headers @{ Authorization = "Bearer $adminToken" } `
+  -ContentType "application/json" `
+  -Body $verificationReportAdminReprintBody
+```
+
+Resultado esperado:
+
+- responde `200`
+- `data.status` debe cambiar a `reprinted`
+- `data.lastReprintedAt` debe venir informado
+
+### 16.8 Listar reportes por orden
+
+```powershell
+Invoke-RestMethod -Method Get `
+  -Uri "$baseUrl/verification-reports?serviceOrderId=$manualLimitOrderId" `
+  -Headers @{ Authorization = "Bearer $supervisorToken" }
+```
+
+Resultado esperado:
+
+- responde `200`
+- `count` debe ser `1`
+- el reporte listado debe coincidir con `verificationReportId`

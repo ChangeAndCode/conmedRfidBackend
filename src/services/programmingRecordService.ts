@@ -11,7 +11,13 @@ import {
 import { SingleScanRead, SingleScanReadModel } from "../models/singleScanRead";
 import { DoubleScanReadModel } from "../models/doubleScanRead";
 import { parseDoubleScanVerificationReading, parseSingleScanReading } from "./gs1Parser";
-import { closeServiceOrderIfVerificationCompleted, getDocumentId } from "./serviceOrderService";
+import {
+    closeServiceOrderIfVerificationCompleted,
+    getDocumentId,
+    getServiceOrderById,
+    getServiceOrderProgress,
+} from "./serviceOrderService";
+import { hasVerificationReportForServiceOrder } from "./verificationReportService";
 
 type ProgrammingRecordQuery = {
     mode?: ProgrammingRecordMode;
@@ -64,6 +70,32 @@ type VerifyProgrammingRecordInput = {
     firstBarcodeRaw?: string | undefined;
     secondBarcodeRaw?: string | undefined;
     verificationNotes?: string | undefined;
+};
+
+type VerifiedProgrammingRecordServiceOrderSummary = {
+    _id: string;
+    folio: string;
+    readingMode: string;
+    partNumber?: string;
+    gtin?: string;
+    rfidProgram?: string;
+    quantity: number;
+    status: string;
+    programmedCount: number;
+    verifiedCount: number;
+    remainingToProgram: number;
+    remainingToVerify: number;
+};
+
+type VerifiedProgrammingRecordVerificationReportState = {
+    exists: boolean;
+    canGenerate: boolean;
+};
+
+export type VerifyProgrammingRecordResult = {
+    programmingRecord: ProgrammingRecord;
+    serviceOrder: VerifiedProgrammingRecordServiceOrderSummary | null;
+    verificationReport: VerifiedProgrammingRecordVerificationReportState;
 };
 
 const listQueryValue = (value: string | undefined): string | undefined => {
@@ -238,6 +270,55 @@ const updateSourceReadStatus = async (
     }
 };
 
+const buildVerifiedProgrammingRecordServiceOrderSummary = async (
+    serviceOrderId: string
+): Promise<{
+    serviceOrder: VerifiedProgrammingRecordServiceOrderSummary;
+    verificationReport: VerifiedProgrammingRecordVerificationReportState;
+}> => {
+    const serviceOrder = await getServiceOrderById(serviceOrderId);
+
+    if (!serviceOrder) {
+        throw new Error("La orden de servicio asociada no existe");
+    }
+
+    const progress = await getServiceOrderProgress(serviceOrderId, serviceOrder.quantity);
+    const reportExists = await hasVerificationReportForServiceOrder(serviceOrderId);
+    const serviceOrderSummary: VerifiedProgrammingRecordServiceOrderSummary = {
+        _id: getDocumentId(serviceOrder as typeof serviceOrder & { _id?: unknown }),
+        folio: serviceOrder.folio,
+        readingMode: serviceOrder.readingMode,
+        quantity: serviceOrder.quantity,
+        status: serviceOrder.status,
+        programmedCount: progress.programmedCount,
+        verifiedCount: progress.verifiedCount,
+        remainingToProgram: progress.remainingToProgram,
+        remainingToVerify: progress.remainingToVerify,
+    };
+
+    if (serviceOrder.partNumber) {
+        serviceOrderSummary.partNumber = serviceOrder.partNumber;
+    }
+
+    if (serviceOrder.gtin) {
+        serviceOrderSummary.gtin = serviceOrder.gtin;
+    }
+
+    if (serviceOrder.rfidProgram) {
+        serviceOrderSummary.rfidProgram = serviceOrder.rfidProgram;
+    }
+
+    return {
+        serviceOrder: serviceOrderSummary,
+        verificationReport: {
+            exists: reportExists,
+            canGenerate: serviceOrder.status === "closed"
+                && progress.remainingToVerify === 0
+                && !reportExists,
+        },
+    };
+};
+
 export const resolveProgrammingRecord = async (
     input: ResolveProgrammingRecordInput
 ): Promise<ResolveProgrammingRecordResult> => {
@@ -248,9 +329,15 @@ export const resolveProgrammingRecord = async (
             throw new Error("El campo rawReference es obligatorio para resolver una programacion manual");
         }
 
+        const upperReference = rawReference.toUpperCase();
+
         const candidates = await queryVerificationCandidates({
             mode: "manual",
-            "rawSourceData.rawReference": rawReference,
+            $or: [
+                { "rawSourceData.rawReference": rawReference },
+                { serviceOrderFolio: upperReference },
+                { partNumber: upperReference },
+            ],
         });
 
         return buildResolveProgrammingRecordResult(candidates, "manual_raw_reference", {
@@ -352,7 +439,7 @@ export const resolveProgrammingRecord = async (
 
 export const verifyProgrammingRecord = async (
     input: VerifyProgrammingRecordInput
-): Promise<ProgrammingRecord> => {
+): Promise<VerifyProgrammingRecordResult> => {
     const programmingRecord = await ProgrammingRecordModel.findById(input.programmingRecordId);
 
     if (!programmingRecord) {
@@ -406,11 +493,23 @@ export const verifyProgrammingRecord = async (
 
     await programmingRecord.save();
 
+    let serviceOrderSummary: VerifiedProgrammingRecordServiceOrderSummary | null = null;
+    let verificationReportState: VerifiedProgrammingRecordVerificationReportState = {
+        exists: false,
+        canGenerate: false,
+    };
+
     try {
         await updateSourceReadStatus(programmingRecord, "verified");
 
         if (programmingRecord.serviceOrderId) {
             await closeServiceOrderIfVerificationCompleted(programmingRecord.serviceOrderId);
+            const serviceOrderState = await buildVerifiedProgrammingRecordServiceOrderSummary(
+                programmingRecord.serviceOrderId
+            );
+
+            serviceOrderSummary = serviceOrderState.serviceOrder;
+            verificationReportState = serviceOrderState.verificationReport;
         }
     } catch (error) {
         programmingRecord.status = "programmed";
@@ -423,7 +522,11 @@ export const verifyProgrammingRecord = async (
         throw error;
     }
 
-    return programmingRecord;
+    return {
+        programmingRecord,
+        serviceOrder: serviceOrderSummary,
+        verificationReport: verificationReportState,
+    };
 };
 
 export const createProgrammingRecordFromManualRead = async (

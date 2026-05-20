@@ -62,6 +62,9 @@ export const createManualRead = async (
         });
 
         payload.serviceOrder = serviceOrder.folio;
+        payload.rawReference = rawReference && rawReference.toLowerCase() !== "manual"
+            ? rawReference
+            : serviceOrder.folio;
 
         if (lot) {
             payload.lot = lot;
@@ -81,10 +84,6 @@ export const createManualRead = async (
 
         if (filterLabel) {
             payload.filterLabel = filterLabel;
-        }
-
-        if (rawReference) {
-            payload.rawReference = rawReference;
         }
 
         if (notes) {

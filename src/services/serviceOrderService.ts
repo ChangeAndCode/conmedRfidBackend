@@ -29,6 +29,11 @@ export type ServiceOrderProgress = {
     remainingToVerify: number;
 };
 
+export type ServiceOrderWithProgress = {
+    serviceOrder: ServiceOrder & { _id?: unknown };
+    progress: ServiceOrderProgress;
+};
+
 export const serviceOrderProgrammingCapacityExceededMessage = (
     "La orden de servicio seleccionada ya alcanzo la cantidad objetivo de programacion"
 );
@@ -286,6 +291,26 @@ export const getServiceOrderProgressMap = async (
     }
 
     return progressById;
+};
+
+export const getServiceOrdersAvailableForProgramming = async (
+    serviceOrders: Array<ServiceOrder & { _id?: unknown }>
+): Promise<ServiceOrderWithProgress[]> => {
+    const progressById = await getServiceOrderProgressMap(serviceOrders);
+
+    return serviceOrders
+        .map((serviceOrder) => {
+            const serviceOrderId = getDocumentId(serviceOrder);
+            const progress = serviceOrderId && progressById[serviceOrderId]
+                ? progressById[serviceOrderId]
+                : createServiceOrderProgress(serviceOrder.quantity, 0, 0);
+
+            return {
+                serviceOrder,
+                progress,
+            };
+        })
+        .filter(({ progress }) => progress.remainingToProgram > 0);
 };
 
 export const listServiceOrders = async (filters: ServiceOrderFilters = {}): Promise<ServiceOrder[]> => {
