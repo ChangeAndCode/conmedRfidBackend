@@ -46,6 +46,7 @@ type ServiceOrderBody = {
     rfidProgram?: unknown;
     status?: unknown;
     notes?: unknown;
+    allowedValidationCodes?: unknown;
 };
 
 type ServiceOrderFilters = {
@@ -168,6 +169,22 @@ const normalizePartNumber = (value: unknown, required = false): string | undefin
     }
 
     return normalized.toUpperCase();
+};
+
+const normalizeAllowedValidationCodes = (value: unknown): string[] | undefined => {
+    if (typeof value === "undefined") {
+        return undefined;
+    }
+
+    if (!Array.isArray(value)) {
+        throw new Error("El campo allowedValidationCodes debe ser una lista de códigos");
+    }
+
+    const normalizedCodes = value
+        .map((code) => normalizeOptionalText(code)?.toUpperCase())
+        .filter((code): code is string => Boolean(code));
+
+    return Array.from(new Set(normalizedCodes));
 };
 
 const normalizeQuantity = (value: unknown, required = false): number | undefined => {
@@ -372,6 +389,7 @@ export const createServiceOrder = async (
             status: "open",
         };
         const notes = normalizeOptionalText(req.body.notes);
+        const allowedValidationCodes = normalizeAllowedValidationCodes(req.body.allowedValidationCodes) ?? [];
 
         if (resolvedCatalog.partNumber) {
             payload.partNumber = resolvedCatalog.partNumber;
@@ -387,6 +405,10 @@ export const createServiceOrder = async (
 
         if (notes) {
             payload.notes = notes;
+        }
+
+        if (allowedValidationCodes.length > 0) {
+            payload.allowedValidationCodes = allowedValidationCodes;
         }
 
         assignAuditFields(payload, req, true);
@@ -454,6 +476,9 @@ export const updateServiceOrder = async (
         const nextNotes = hasOwn(req.body, "notes")
             ? normalizeOptionalText(req.body.notes)
             : serviceOrder.notes;
+        const nextAllowedValidationCodes = hasOwn(req.body, "allowedValidationCodes")
+            ? normalizeAllowedValidationCodes(req.body.allowedValidationCodes)
+            : serviceOrder.allowedValidationCodes;
 
         const resolvedCatalog = await validateServiceOrderCatalogReferences({
             readingMode: nextReadingMode as ServiceOrderReadingMode,
@@ -493,6 +518,8 @@ export const updateServiceOrder = async (
         } else {
             delete serviceOrder.notes;
         }
+
+        serviceOrder.allowedValidationCodes = nextAllowedValidationCodes ?? [];
 
         assignAuditFields(serviceOrder, req);
         await serviceOrder.save();
