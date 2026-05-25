@@ -43,6 +43,12 @@ type VerificationReportDocument = VerificationReport & {
     save: () => Promise<VerificationReportDocument>;
 };
 
+export type VerificationReportAvailableActions = {
+    canMarkPrinted: boolean;
+    canMarkPrintInterrupted: boolean;
+    canReprint: boolean;
+};
+
 const buildHistoryEvent = (
     type: VerificationReportHistoryEventType,
     actor?: VerificationReportActor,
@@ -162,6 +168,46 @@ export const getVerificationReportById = async (id: string): Promise<Verificatio
     return VerificationReportModel.findById(id);
 };
 
+export const getVerificationReportByServiceOrderId = async (
+    serviceOrderId: string
+): Promise<VerificationReport | null> => {
+    return VerificationReportModel.findOne({ serviceOrderId });
+};
+
+export const getVerificationReportAvailableActions = (
+    status: VerificationReportStatus
+): VerificationReportAvailableActions => {
+    if (status === "generated") {
+        return {
+            canMarkPrinted: true,
+            canMarkPrintInterrupted: true,
+            canReprint: false,
+        };
+    }
+
+    if (status === "print_interrupted") {
+        return {
+            canMarkPrinted: true,
+            canMarkPrintInterrupted: false,
+            canReprint: false,
+        };
+    }
+
+    if (status === "printed") {
+        return {
+            canMarkPrinted: false,
+            canMarkPrintInterrupted: false,
+            canReprint: true,
+        };
+    }
+
+    return {
+        canMarkPrinted: false,
+        canMarkPrintInterrupted: false,
+        canReprint: true,
+    };
+};
+
 export const hasVerificationReportForServiceOrder = async (serviceOrderId: string): Promise<boolean> => {
     const existingReport = await VerificationReportModel.exists({ serviceOrderId });
     return existingReport !== null;
@@ -267,6 +313,12 @@ export const markVerificationReportPrintInterrupted = async (
         throw new Error("El reporte ya se encuentra marcado como impresion interrumpida");
     }
 
+    if (verificationReport.status === "printed" || verificationReport.status === "reprinted") {
+        throw new Error(
+            "El reporte ya fue marcado como impreso; no puede marcarse como impresion interrumpida"
+        );
+    }
+
     verificationReport.status = "print_interrupted";
     verificationReport.lastPrintInterruptedAt = new Date();
     verificationReport.history.push(buildHistoryEvent("print_interrupted", input.actor, input.notes));
@@ -284,6 +336,10 @@ export const markVerificationReportAsPrinted = async (
         throw new Error("El reporte ya fue marcado como impreso");
     }
 
+    if (verificationReport.status === "reprinted") {
+        throw new Error("El reporte ya fue reimpreso; no puede marcarse nuevamente como impresion inicial");
+    }
+
     verificationReport.status = "printed";
     verificationReport.lastPrintedAt = new Date();
     verificationReport.history.push(buildHistoryEvent("printed", input.actor, input.notes));
@@ -297,8 +353,8 @@ export const reprintVerificationReport = async (
 ): Promise<VerificationReport> => {
     const verificationReport = await getExistingVerificationReport(input.verificationReportId);
 
-    if (verificationReport.status === "generated") {
-        throw new Error("El reporte aun no tiene un intento previo de impresion para reimprimirlo");
+    if (verificationReport.status === "generated" || verificationReport.status === "print_interrupted") {
+        throw new Error("El reporte debe marcarse como impreso antes de reimprimirlo");
     }
 
     verificationReport.status = "reprinted";

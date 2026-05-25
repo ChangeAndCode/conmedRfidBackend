@@ -1075,6 +1075,8 @@ Resultado esperado:
 - crea un solo reporte para la orden cerrada
 - `data.serviceOrderId` debe coincidir con `manualLimitOrderId`
 - `data.status` debe ser `generated`
+- `data.availableActions.canMarkPrinted` debe ser `true`
+- `data.availableActions.canMarkPrintInterrupted` debe ser `true`
 - `data.partNumber` debe ser `EMVS353`
 - `data.lot` debe ser `MANUAL-LIMIT-LOT`
 - `data.manufactureDate` debe venir informado
@@ -1116,6 +1118,9 @@ Resultado esperado:
 
 ### 16.4 Marcar impresion interrumpida
 
+Este endpoint se usa despues de regresar del dialogo nativo de impresion cuando el usuario confirma
+que cancelo o que la impresion no salio correctamente. `notes` es opcional.
+
 ```powershell
 $verificationReportInterruptedBody = @{
   notes = "Fallo de tinta a mitad de la impresion"
@@ -1133,8 +1138,13 @@ Resultado esperado:
 - responde `200`
 - `data.status` debe cambiar a `print_interrupted`
 - `data.lastPrintInterruptedAt` debe venir informado
+- `data.availableActions.canMarkPrinted` debe ser `true`
+- `data.availableActions.canMarkPrintInterrupted` debe ser `false`
 
 ### 16.5 Confirmar impresion completada
+
+Este endpoint se usa despues de regresar del dialogo nativo de impresion cuando el usuario confirma
+que la impresion o guardado a PDF salio correctamente. `notes` es opcional.
 
 ```powershell
 $verificationReportPrintedBody = @{
@@ -1153,6 +1163,7 @@ Resultado esperado:
 - responde `200`
 - `data.status` debe cambiar a `printed`
 - `data.lastPrintedAt` debe venir informado
+- `data.availableActions.canReprint` debe ser `true`
 
 ### 16.6 Supervisor no puede reimprimir
 

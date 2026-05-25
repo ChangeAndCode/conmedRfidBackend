@@ -11,13 +11,18 @@ import {
 import { SingleScanRead, SingleScanReadModel } from "../models/singleScanRead";
 import { DoubleScanReadModel } from "../models/doubleScanRead";
 import { parseDoubleScanVerificationReading, parseSingleScanReading } from "./gs1Parser";
+import { VerificationReportStatus } from "../models/verificationReport";
 import {
     closeServiceOrderIfVerificationCompleted,
     getDocumentId,
     getServiceOrderById,
     getServiceOrderProgress,
 } from "./serviceOrderService";
-import { hasVerificationReportForServiceOrder } from "./verificationReportService";
+import {
+    getVerificationReportAvailableActions,
+    getVerificationReportByServiceOrderId,
+    VerificationReportAvailableActions,
+} from "./verificationReportService";
 
 type ProgrammingRecordQuery = {
     mode?: ProgrammingRecordMode;
@@ -90,6 +95,9 @@ type VerifiedProgrammingRecordServiceOrderSummary = {
 type VerifiedProgrammingRecordVerificationReportState = {
     exists: boolean;
     canGenerate: boolean;
+    reportId: string | null;
+    status: VerificationReportStatus | null;
+    availableActions: VerificationReportAvailableActions | null;
 };
 
 export type VerifyProgrammingRecordResult = {
@@ -296,7 +304,8 @@ const buildVerifiedProgrammingRecordServiceOrderSummary = async (
     }
 
     const progress = await getServiceOrderProgress(serviceOrderId, serviceOrder.quantity);
-    const reportExists = await hasVerificationReportForServiceOrder(serviceOrderId);
+    const verificationReport = await getVerificationReportByServiceOrderId(serviceOrderId);
+    const reportExists = verificationReport !== null;
     const serviceOrderSummary: VerifiedProgrammingRecordServiceOrderSummary = {
         _id: getDocumentId(serviceOrder as typeof serviceOrder & { _id?: unknown }),
         folio: serviceOrder.folio,
@@ -328,6 +337,13 @@ const buildVerifiedProgrammingRecordServiceOrderSummary = async (
             canGenerate: serviceOrder.status === "closed"
                 && progress.remainingToVerify === 0
                 && !reportExists,
+            reportId: verificationReport
+                ? getDocumentId(verificationReport as typeof verificationReport & { _id?: unknown })
+                : null,
+            status: verificationReport?.status ?? null,
+            availableActions: verificationReport
+                ? getVerificationReportAvailableActions(verificationReport.status)
+                : null,
         },
     };
 };
@@ -532,6 +548,9 @@ export const verifyProgrammingRecord = async (
     let verificationReportState: VerifiedProgrammingRecordVerificationReportState = {
         exists: false,
         canGenerate: false,
+        reportId: null,
+        status: null,
+        availableActions: null,
     };
 
     try {
