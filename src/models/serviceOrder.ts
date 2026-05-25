@@ -16,6 +16,7 @@ export interface ServiceOrder {
     quantity: number;
     status: ServiceOrderStatus;
     notes?: string;
+    allowedValidationCodes?: string[];
     createdByUserId?: string;
     createdByUsername?: string;
     updatedByUserId?: string;
@@ -76,6 +77,15 @@ const serviceOrderSchema = new Schema<ServiceOrder>(
         notes: {
             type: String,
             trim: true,
+        },
+        allowedValidationCodes: {
+            type: [String],
+            default: [],
+            validate: {
+                validator: (values: string[] = []): boolean =>
+                    values.every((value) => value.trim().length > 0),
+                message: "Los códigos permitidos no pueden estar vacíos",
+            },
         },
         createdByUserId: {
             type: String,

@@ -103,6 +103,19 @@ const listQueryValue = (value: string | undefined): string | undefined => {
     return normalized && normalized.length > 0 ? normalized : undefined;
 };
 
+const getVerificationEvidenceCodes = (
+    input: VerifyProgrammingRecordInput
+): string[] => {
+    return [
+        input.rawReference,
+        input.rawScan,
+        input.firstBarcodeRaw,
+        input.secondBarcodeRaw,
+    ]
+        .map((value) => listQueryValue(value)?.toUpperCase())
+        .filter((value): value is string => Boolean(value));
+};
+
 const verificationSearchStatuses: ProgrammingRecordStatus[] = ["programmed", "verified"];
 
 const statusPriority: Record<ProgrammingRecordStatus, number> = {
@@ -467,7 +480,29 @@ export const verifyProgrammingRecord = async (
         throw new Error("La evidencia de verificacion no coincide con el programming record seleccionado");
     }
 
+    if (programmingRecord.serviceOrderId) {
+        const serviceOrder = await getServiceOrderById(programmingRecord.serviceOrderId);
+
+        if (!serviceOrder) {
+            throw new Error("La orden de servicio asociada no existe");
+        }
+
+        const allowedValidationCodes = serviceOrder.allowedValidationCodes ?? [];
+
+        if (allowedValidationCodes.length > 0) {
+            const evidenceCodes = getVerificationEvidenceCodes(input);
+            const hasAllowedEvidenceCode = evidenceCodes.some((code) =>
+                allowedValidationCodes.includes(code)
+            );
+
+            if (!hasAllowedEvidenceCode) {
+                throw new Error("El código escaneado no pertenece a los códigos permitidos para esta orden de servicio");
+            }
+        }
+    }
+
     const verificationData = buildVerificationData(resolution.normalizedInput);
+
     programmingRecord.status = "verified";
     programmingRecord.verifiedAt = new Date();
 
