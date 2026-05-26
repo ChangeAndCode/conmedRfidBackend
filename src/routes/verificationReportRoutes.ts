@@ -35,19 +35,19 @@ verificationReportRouter.get(
 );
 verificationReportRouter.post(
     "/:id/print-interrupted",
-    requireRoles("supervisor"),
+    requireRoles("admin", "supervisor"),
     setApiAction("verification_report_print_interrupted"),
     markVerificationReportPrintInterruptedHandler
 );
 verificationReportRouter.post(
     "/:id/print-completed",
-    requireRoles("supervisor"),
+    requireRoles("admin", "supervisor"),
     setApiAction("verification_report_print_completed"),
     markVerificationReportPrintedHandler
 );
 verificationReportRouter.post(
     "/:id/reprint",
-    requireRoles("supervisor"),
+    requireRoles("admin"),
     setApiAction("verification_report_reprint"),
     reprintVerificationReportHandler
 );

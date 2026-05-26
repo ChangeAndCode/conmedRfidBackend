@@ -1,11 +1,14 @@
 import { Request, Response } from "express";
 import { isValidObjectId } from "mongoose";
 import {
+    VerificationReport,
     VerificationReportStatus,
     verificationReportStatuses,
 } from "../models/verificationReport";
+import { getDocumentId } from "../services/serviceOrderService";
 import {
     createVerificationReport,
+    getVerificationReportAvailableActions,
     getVerificationReportById,
     isVerificationReportAlreadyExistsError,
     isVerificationReportNotFoundError,
@@ -23,6 +26,7 @@ type VerificationReportBody = {
 };
 
 type VerificationReportPrintActionBody = {
+    interruptionId?: unknown;
     notes?: unknown;
 };
 
@@ -60,6 +64,9 @@ const resolveVerificationReportStatusCode = (message: string): number => {
         || message.includes("multiples numeros de parte")
         || message.includes("ya se encuentra marcado")
         || message.includes("ya fue marcado como impreso")
+        || message.includes("ya fue reimpreso")
+        || message.includes("debe marcarse como impreso")
+        || message.includes("no puede marcarse")
         || message.includes("aun no tiene un intento previo")
     ) {
         return 409;
@@ -74,6 +81,23 @@ const resolveVerificationReportStatusCode = (message: string): number => {
     }
 
     return 400;
+};
+
+const toVerificationReportResponse = (
+    verificationReport: VerificationReport & {
+        _id?: unknown;
+        toObject?: () => Record<string, unknown>;
+    }
+): Record<string, unknown> => {
+    const base = typeof verificationReport.toObject === "function"
+        ? verificationReport.toObject()
+        : { ...verificationReport };
+
+    return {
+        ...base,
+        _id: getDocumentId(verificationReport),
+        availableActions: getVerificationReportAvailableActions(verificationReport.status),
+    };
 };
 
 export const listVerificationReportsHandler = async (req: Request, res: Response): Promise<void> => {
@@ -103,7 +127,12 @@ export const listVerificationReportsHandler = async (req: Request, res: Response
 
         res.json({
             count: reports.length,
-            data: reports,
+            data: reports.map((report) =>
+                toVerificationReportResponse(report as VerificationReport & {
+                    _id?: unknown;
+                    toObject?: () => Record<string, unknown>;
+                })
+            ),
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : "No se pudieron listar los reportes de verificacion";
@@ -129,7 +158,12 @@ export const getVerificationReportByIdHandler = async (
         return;
     }
 
-    res.json({ data: verificationReport });
+    res.json({
+        data: toVerificationReportResponse(verificationReport as VerificationReport & {
+            _id?: unknown;
+            toObject?: () => Record<string, unknown>;
+        }),
+    });
 };
 
 export const createVerificationReportHandler = async (
@@ -139,21 +173,23 @@ export const createVerificationReportHandler = async (
     try {
         const input: {
             serviceOrderId: string;
-            manufacturingRepresentativeName: string;
-            qualityRepresentativeName: string;
+            manufacturingRepresentativeName?: string;
+            qualityRepresentativeName?: string;
             actor?: { userId?: string; username?: string };
         } = {
             serviceOrderId: normalizeRequiredText(req.body.serviceOrderId, "serviceOrderId"),
-            manufacturingRepresentativeName: normalizeRequiredText(
-                req.body.manufacturingRepresentativeName,
-                "manufacturingRepresentativeName"
-            ),
-            qualityRepresentativeName: normalizeRequiredText(
-                req.body.qualityRepresentativeName,
-                "qualityRepresentativeName"
-            ),
         };
+        const manufacturingRepresentativeName = normalizeOptionalText(req.body.manufacturingRepresentativeName);
+        const qualityRepresentativeName = normalizeOptionalText(req.body.qualityRepresentativeName);
         const actor = resolveActor(req);
+
+        if (manufacturingRepresentativeName) {
+            input.manufacturingRepresentativeName = manufacturingRepresentativeName;
+        }
+
+        if (qualityRepresentativeName) {
+            input.qualityRepresentativeName = qualityRepresentativeName;
+        }
 
         if (actor) {
             input.actor = actor;
@@ -163,7 +199,10 @@ export const createVerificationReportHandler = async (
 
         res.status(201).json({
             message: "Reporte de verificacion generado",
-            data: verificationReport,
+            data: toVerificationReportResponse(verificationReport as VerificationReport & {
+                _id?: unknown;
+                toObject?: () => Record<string, unknown>;
+            }),
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : "No se pudo generar el reporte de verificacion";
@@ -189,13 +228,24 @@ export const markVerificationReportPrintInterruptedHandler = async (
 
         const input: {
             verificationReportId: string;
+            printInterruptionId?: string;
             notes?: string;
             actor?: { userId?: string; username?: string };
         } = {
             verificationReportId: id,
         };
+        const interruptionId = normalizeOptionalText(req.body.interruptionId);
         const notes = normalizeOptionalText(req.body.notes);
         const actor = resolveActor(req);
+
+        if (interruptionId) {
+            if (!isValidObjectId(interruptionId)) {
+                res.status(400).json({ message: "El interruptionId no es valido" });
+                return;
+            }
+
+            input.printInterruptionId = interruptionId;
+        }
 
         if (notes) {
             input.notes = notes;
@@ -209,7 +259,10 @@ export const markVerificationReportPrintInterruptedHandler = async (
 
         res.json({
             message: "Reporte marcado con impresion interrumpida",
-            data: verificationReport,
+            data: toVerificationReportResponse(verificationReport as VerificationReport & {
+                _id?: unknown;
+                toObject?: () => Record<string, unknown>;
+            }),
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : "No se pudo actualizar el reporte";
@@ -255,7 +308,10 @@ export const markVerificationReportPrintedHandler = async (
 
         res.json({
             message: "Reporte marcado como impreso",
-            data: verificationReport,
+            data: toVerificationReportResponse(verificationReport as VerificationReport & {
+                _id?: unknown;
+                toObject?: () => Record<string, unknown>;
+            }),
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : "No se pudo actualizar el reporte";
@@ -301,7 +357,10 @@ export const reprintVerificationReportHandler = async (
 
         res.json({
             message: "Reporte reimpreso",
-            data: verificationReport,
+            data: toVerificationReportResponse(verificationReport as VerificationReport & {
+                _id?: unknown;
+                toObject?: () => Record<string, unknown>;
+            }),
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : "No se pudo reimprimir el reporte";

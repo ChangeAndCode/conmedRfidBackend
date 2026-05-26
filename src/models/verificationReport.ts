@@ -18,6 +18,7 @@ export interface VerificationReportHistoryEvent {
     occurredAt: Date;
     performedByUserId?: string;
     performedByUsername?: string;
+    interruptionTitle?: string;
     notes?: string;
 }
 
@@ -80,6 +81,10 @@ const verificationReportHistoryEventSchema = new Schema<VerificationReportHistor
             trim: true,
         },
         performedByUsername: {
+            type: String,
+            trim: true,
+        },
+        interruptionTitle: {
             type: String,
             trim: true,
         },

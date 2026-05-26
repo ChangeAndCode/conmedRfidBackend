@@ -22,6 +22,7 @@ $manualChangeRequestId = ""
 $doubleChangeRequestId = ""
 $doubleScanPartConfigId = ""
 $verificationReportId = ""
+$paperJamInterruptionId = ""
 ```
 
 ## Paso 1. Crear primer admin
@@ -226,6 +227,62 @@ Resultado esperado:
 
 - ambos responden `201`
 - si ya existen puede responder conflicto por duplicado
+
+### 6.3 Configurar responsables globales del reporte
+
+```powershell
+$reportResponsiblesBody = @{
+  manufacturingRepresentativeName = "Maria Manufactura"
+  qualityRepresentativeName = "Carlos Calidad"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Put `
+  -Uri "$baseUrl/report-responsibles" `
+  -Headers @{ Authorization = "Bearer $adminToken" } `
+  -ContentType "application/json" `
+  -Body $reportResponsiblesBody
+```
+
+Resultado esperado:
+
+- responde `200`
+- `data.isConfigured` debe ser `true`
+- guarda ambos nombres completos para usarlos en futuros reportes
+
+### 6.4 Crear catalogo de interrupciones de impresion
+
+```powershell
+$printInterruptionBody = @{
+  title = "Papel atascado"
+} | ConvertTo-Json
+
+$printInterruptionResponse = Invoke-RestMethod -Method Post `
+  -Uri "$baseUrl/print-interruptions" `
+  -Headers @{ Authorization = "Bearer $adminToken" } `
+  -ContentType "application/json" `
+  -Body $printInterruptionBody
+
+$paperJamInterruptionId = $printInterruptionResponse.data._id
+$paperJamInterruptionId
+```
+
+Resultado esperado:
+
+- responde `201`
+- crea una interrupcion con `title = Papel atascado`
+
+### 6.5 Listar interrupciones disponibles
+
+```powershell
+Invoke-RestMethod -Method Get `
+  -Uri "$baseUrl/print-interruptions" `
+  -Headers @{ Authorization = "Bearer $supervisorToken" }
+```
+
+Resultado esperado:
+
+- responde `200`
+- el listado incluye `Papel atascado`
 
 ## Paso 7. Crear orden manual con supervisor
 
@@ -1055,8 +1112,6 @@ Este paso usa la orden `manualLimitOrderId` ya cerrada en `15.1.2`.
 ```powershell
 $verificationReportBody = @{
   serviceOrderId = $manualLimitOrderId
-  manufacturingRepresentativeName = "Maria Manufactura"
-  qualityRepresentativeName = "Carlos Calidad"
 } | ConvertTo-Json
 
 $verificationReportResponse = Invoke-RestMethod -Method Post `
@@ -1075,11 +1130,14 @@ Resultado esperado:
 - crea un solo reporte para la orden cerrada
 - `data.serviceOrderId` debe coincidir con `manualLimitOrderId`
 - `data.status` debe ser `generated`
+- `data.availableActions.canMarkPrinted` debe ser `true`
+- `data.availableActions.canMarkPrintInterrupted` debe ser `true`
 - `data.partNumber` debe ser `EMVS353`
 - `data.lot` debe ser `MANUAL-LIMIT-LOT`
 - `data.manufactureDate` debe venir informado
 - `data.rows.Count` debe ser `2`
-- `data.manufacturingRepresentativeName` y `data.qualityRepresentativeName` deben quedar guardados
+- `data.manufacturingRepresentativeName` debe ser `Maria Manufactura`
+- `data.qualityRepresentativeName` debe ser `Carlos Calidad`
 
 Nota:
 
@@ -1116,8 +1174,12 @@ Resultado esperado:
 
 ### 16.4 Marcar impresion interrumpida
 
+Este endpoint se usa despues de regresar del dialogo nativo de impresion cuando el usuario confirma
+que cancelo o que la impresion no salio correctamente. `notes` es opcional.
+
 ```powershell
 $verificationReportInterruptedBody = @{
+  interruptionId = $paperJamInterruptionId
   notes = "Fallo de tinta a mitad de la impresion"
 } | ConvertTo-Json
 
@@ -1133,8 +1195,14 @@ Resultado esperado:
 - responde `200`
 - `data.status` debe cambiar a `print_interrupted`
 - `data.lastPrintInterruptedAt` debe venir informado
+- `data.availableActions.canMarkPrinted` debe ser `true`
+- `data.availableActions.canMarkPrintInterrupted` debe ser `false`
+- `data.history[-1].interruptionTitle` debe ser `Papel atascado`
 
 ### 16.5 Confirmar impresion completada
+
+Este endpoint se usa despues de regresar del dialogo nativo de impresion cuando el usuario confirma
+que la impresion o guardado a PDF salio correctamente. `notes` es opcional.
 
 ```powershell
 $verificationReportPrintedBody = @{
@@ -1153,6 +1221,7 @@ Resultado esperado:
 - responde `200`
 - `data.status` debe cambiar a `printed`
 - `data.lastPrintedAt` debe venir informado
+- `data.availableActions.canReprint` debe ser `true`
 
 ### 16.6 Supervisor no puede reimprimir
 
