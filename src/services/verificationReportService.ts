@@ -6,6 +6,8 @@ import {
     VerificationReportModel,
     VerificationReportStatus,
 } from "../models/verificationReport";
+import { getPrintInterruptionTitleSnapshot } from "./printInterruptionService";
+import { resolveVerificationReportRepresentativeNames } from "./reportResponsiblesService";
 import { getDocumentId, getServiceOrderById, getServiceOrderProgress } from "./serviceOrderService";
 
 type VerificationReportFilters = {
@@ -21,13 +23,14 @@ type VerificationReportActor = {
 
 type CreateVerificationReportInput = {
     serviceOrderId: string;
-    manufacturingRepresentativeName: string;
-    qualityRepresentativeName: string;
+    manufacturingRepresentativeName?: string;
+    qualityRepresentativeName?: string;
     actor?: VerificationReportActor;
 };
 
 type UpdateVerificationReportStatusInput = {
     verificationReportId: string;
+    printInterruptionId?: string;
     notes?: string;
     actor?: VerificationReportActor;
 };
@@ -52,7 +55,8 @@ export type VerificationReportAvailableActions = {
 const buildHistoryEvent = (
     type: VerificationReportHistoryEventType,
     actor?: VerificationReportActor,
-    notes?: string
+    notes?: string,
+    interruptionTitle?: string
 ): VerificationReportHistoryEvent => {
     const event: VerificationReportHistoryEvent = {
         type,
@@ -65,6 +69,10 @@ const buildHistoryEvent = (
 
     if (actor?.username) {
         event.performedByUsername = actor.username;
+    }
+
+    if (interruptionTitle) {
+        event.interruptionTitle = interruptionTitle;
     }
 
     if (notes) {
@@ -243,6 +251,20 @@ export const createVerificationReport = async (
     }
 
     const header = buildVerificationReportHeader(verifiedRecords);
+    const representativeNamesInput: {
+        manufacturingRepresentativeName?: string;
+        qualityRepresentativeName?: string;
+    } = {};
+
+    if (input.manufacturingRepresentativeName) {
+        representativeNamesInput.manufacturingRepresentativeName = input.manufacturingRepresentativeName;
+    }
+
+    if (input.qualityRepresentativeName) {
+        representativeNamesInput.qualityRepresentativeName = input.qualityRepresentativeName;
+    }
+
+    const representativeNames = await resolveVerificationReportRepresentativeNames(representativeNamesInput);
     const history = [
         buildHistoryEvent("generated", input.actor),
     ];
@@ -256,8 +278,8 @@ export const createVerificationReport = async (
             partNumber: header.partNumber,
             lot: header.lot,
             manufactureDate: header.manufactureDate,
-            manufacturingRepresentativeName: input.manufacturingRepresentativeName,
-            qualityRepresentativeName: input.qualityRepresentativeName,
+            manufacturingRepresentativeName: representativeNames.manufacturingRepresentativeName,
+            qualityRepresentativeName: representativeNames.qualityRepresentativeName,
             rows: verifiedRecords.map((record) => {
                 const programmedAt = record.createdAt;
                 const verifiedAt = record.verifiedAt;
@@ -319,9 +341,15 @@ export const markVerificationReportPrintInterrupted = async (
         );
     }
 
+    const interruptionTitle = input.printInterruptionId
+        ? await getPrintInterruptionTitleSnapshot(input.printInterruptionId)
+        : undefined;
+
     verificationReport.status = "print_interrupted";
     verificationReport.lastPrintInterruptedAt = new Date();
-    verificationReport.history.push(buildHistoryEvent("print_interrupted", input.actor, input.notes));
+    verificationReport.history.push(
+        buildHistoryEvent("print_interrupted", input.actor, input.notes, interruptionTitle)
+    );
     await verificationReport.save();
 
     return verificationReport;

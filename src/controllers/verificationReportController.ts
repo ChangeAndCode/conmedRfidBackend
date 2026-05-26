@@ -26,6 +26,7 @@ type VerificationReportBody = {
 };
 
 type VerificationReportPrintActionBody = {
+    interruptionId?: unknown;
     notes?: unknown;
 };
 
@@ -172,21 +173,23 @@ export const createVerificationReportHandler = async (
     try {
         const input: {
             serviceOrderId: string;
-            manufacturingRepresentativeName: string;
-            qualityRepresentativeName: string;
+            manufacturingRepresentativeName?: string;
+            qualityRepresentativeName?: string;
             actor?: { userId?: string; username?: string };
         } = {
             serviceOrderId: normalizeRequiredText(req.body.serviceOrderId, "serviceOrderId"),
-            manufacturingRepresentativeName: normalizeRequiredText(
-                req.body.manufacturingRepresentativeName,
-                "manufacturingRepresentativeName"
-            ),
-            qualityRepresentativeName: normalizeRequiredText(
-                req.body.qualityRepresentativeName,
-                "qualityRepresentativeName"
-            ),
         };
+        const manufacturingRepresentativeName = normalizeOptionalText(req.body.manufacturingRepresentativeName);
+        const qualityRepresentativeName = normalizeOptionalText(req.body.qualityRepresentativeName);
         const actor = resolveActor(req);
+
+        if (manufacturingRepresentativeName) {
+            input.manufacturingRepresentativeName = manufacturingRepresentativeName;
+        }
+
+        if (qualityRepresentativeName) {
+            input.qualityRepresentativeName = qualityRepresentativeName;
+        }
 
         if (actor) {
             input.actor = actor;
@@ -225,13 +228,24 @@ export const markVerificationReportPrintInterruptedHandler = async (
 
         const input: {
             verificationReportId: string;
+            printInterruptionId?: string;
             notes?: string;
             actor?: { userId?: string; username?: string };
         } = {
             verificationReportId: id,
         };
+        const interruptionId = normalizeOptionalText(req.body.interruptionId);
         const notes = normalizeOptionalText(req.body.notes);
         const actor = resolveActor(req);
+
+        if (interruptionId) {
+            if (!isValidObjectId(interruptionId)) {
+                res.status(400).json({ message: "El interruptionId no es valido" });
+                return;
+            }
+
+            input.printInterruptionId = interruptionId;
+        }
 
         if (notes) {
             input.notes = notes;
