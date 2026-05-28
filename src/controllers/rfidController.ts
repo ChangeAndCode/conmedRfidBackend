@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
-import { buildLegacyTagPayload } from "../services/rfid/legacyTagCodec";
+import { buildLegacyTagPayload, BuiltLegacyTagPayload } from "../services/rfid/legacyTagCodec";
 import { resolveLegacyRfidPartMappingByBackendPartNumber } from "../services/partConfigService";
+import { ResolvedLegacyRfidPartMapping } from "../services/rfid/legacyTagMapping";
 import { normalizeOptionalText, normalizeRequiredText } from "../utils/requestNormalization";
 
 type BuildLegacyTagPayloadBody = {
@@ -12,6 +13,28 @@ type BuildLegacyTagPayloadBody = {
     partNo?: unknown;
     partNumber?: unknown;
     tagId?: unknown;
+};
+
+type BuildLegacyTagPayloadQuery = {
+    debug?: unknown;
+    verbose?: unknown;
+};
+
+type BuildLegacyTagPayloadResponseData = {
+    authCode: string;
+    backendPartNumber: string;
+    dateCode: string;
+    details?: {
+        decoded: BuiltLegacyTagPayload["decoded"];
+        initialLifeMinutes: number;
+        remainingLifeMinutes: number;
+    };
+    legacyPartMapping: ResolvedLegacyRfidPartMapping;
+    lot: string;
+    partNumber: string;
+    payloadHex: string;
+    tagByteLength: number;
+    tagId: string;
 };
 
 const normalizeLegacyLotBodyValue = (value: unknown): string => {
@@ -26,8 +49,51 @@ const normalizeLegacyLotBodyValue = (value: unknown): string => {
     return normalizeRequiredText(value, "lot");
 };
 
+const isEnabledQueryFlag = (value: unknown): boolean => {
+    if (Array.isArray(value)) {
+        return value.some((item) => isEnabledQueryFlag(item));
+    }
+
+    if (typeof value !== "string") {
+        return false;
+    }
+
+    const normalized = value.trim().toLowerCase();
+
+    return normalized === "true" || normalized === "1" || normalized === "yes" || normalized === "on";
+};
+
+export const buildLegacyTagPayloadResponseData = (
+    payload: BuiltLegacyTagPayload,
+    backendPartNumber: string,
+    legacyPartMapping: ResolvedLegacyRfidPartMapping,
+    includeDetails: boolean
+): BuildLegacyTagPayloadResponseData => {
+    const responseData: BuildLegacyTagPayloadResponseData = {
+        authCode: payload.authCode,
+        backendPartNumber,
+        dateCode: payload.dateCode,
+        legacyPartMapping,
+        lot: payload.lot,
+        partNumber: payload.partNumber,
+        payloadHex: payload.payloadHex,
+        tagByteLength: payload.tagByteLength,
+        tagId: payload.tagId,
+    };
+
+    if (includeDetails) {
+        responseData.details = {
+            decoded: payload.decoded,
+            initialLifeMinutes: payload.initialLifeMinutes,
+            remainingLifeMinutes: payload.remainingLifeMinutes,
+        };
+    }
+
+    return responseData;
+};
+
 export const buildLegacyTagPayloadHandler = async (
-    req: Request<unknown, unknown, BuildLegacyTagPayloadBody>,
+    req: Request<unknown, unknown, BuildLegacyTagPayloadBody, BuildLegacyTagPayloadQuery>,
     res: Response
 ): Promise<void> => {
     try {
@@ -56,14 +122,11 @@ export const buildLegacyTagPayloadHandler = async (
             manufactureDate,
             tagId: normalizeRequiredText(req.body.tagId, "tagId"),
         });
+        const includeDetails = isEnabledQueryFlag(req.query.verbose) || isEnabledQueryFlag(req.query.debug);
 
         res.json({
             message: "Payload RFID legado construido correctamente",
-            data: {
-                ...payload,
-                backendPartNumber,
-                legacyPartMapping,
-            },
+            data: buildLegacyTagPayloadResponseData(payload, backendPartNumber, legacyPartMapping, includeDetails),
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : "No se pudo construir el payload RFID legado";
