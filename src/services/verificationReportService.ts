@@ -281,7 +281,7 @@ export const createVerificationReport = async (
             manufacturingRepresentativeName: representativeNames.manufacturingRepresentativeName,
             qualityRepresentativeName: representativeNames.qualityRepresentativeName,
             rows: verifiedRecords.map((record) => {
-                const programmedAt = record.createdAt;
+                const programmedAt = record.programmedAt ?? record.createdAt;
                 const verifiedAt = record.verifiedAt;
 
                 if (!programmedAt || !verifiedAt) {

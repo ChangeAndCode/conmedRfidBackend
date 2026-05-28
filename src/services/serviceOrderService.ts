@@ -23,8 +23,10 @@ type ServiceOrderFilters = {
 };
 
 export type ServiceOrderProgress = {
+    reservedCount: number;
     programmedCount: number;
     verifiedCount: number;
+    remainingToCapture: number;
     remainingToProgram: number;
     remainingToVerify: number;
 };
@@ -43,7 +45,7 @@ export const isServiceOrderProgrammingCapacityExceededError = (error: unknown): 
 };
 
 export const serviceOrderQuantityBelowProgressMessage = (
-    "La cantidad no puede ser menor a la cantidad ya programada o verificada en la orden de servicio"
+    "La cantidad no puede ser menor a la cantidad ya capturada, programada o verificada en la orden de servicio"
 );
 
 export const isServiceOrderQuantityBelowProgressError = (error: unknown): boolean => {
@@ -52,6 +54,7 @@ export const isServiceOrderQuantityBelowProgressError = (error: unknown): boolea
 
 type ServiceOrderProgressCount = {
     _id: string;
+    reservedCount: number;
     programmedCount: number;
     verifiedCount: number;
 };
@@ -161,12 +164,15 @@ export const createServiceOrderWithGeneratedFolio = async (
 
 const createServiceOrderProgress = (
     quantity: number,
+    reservedCount: number,
     programmedCount: number,
     verifiedCount: number
 ): ServiceOrderProgress => {
     return {
+        reservedCount,
         programmedCount,
         verifiedCount,
+        remainingToCapture: Math.max(quantity - reservedCount, 0),
         remainingToProgram: Math.max(quantity - programmedCount, 0),
         remainingToVerify: Math.max(quantity - verifiedCount, 0),
     };
@@ -190,6 +196,17 @@ const aggregateServiceOrderProgressCounts = async (
         {
             $group: {
                 _id: "$serviceOrderId",
+                reservedCount: {
+                    $sum: {
+                        $cond: [
+                            {
+                                $in: ["$status", ["captured", "programmed", "verified"]],
+                            },
+                            1,
+                            0,
+                        ],
+                    },
+                },
                 programmedCount: {
                     $sum: {
                         $cond: [
@@ -225,6 +242,7 @@ export const getServiceOrderProgress = async (
 
     return createServiceOrderProgress(
         quantity,
+        counts?.reservedCount ?? 0,
         counts?.programmedCount ?? 0,
         counts?.verifiedCount ?? 0
     );
@@ -235,7 +253,7 @@ export const hasServiceOrderProgrammingCapacity = async (
     quantity: number
 ): Promise<boolean> => {
     const progress = await getServiceOrderProgress(serviceOrderId, quantity);
-    return progress.programmedCount < quantity;
+    return progress.reservedCount < quantity;
 };
 
 export const assertServiceOrderQuantityCanBeUpdated = async (
@@ -244,7 +262,11 @@ export const assertServiceOrderQuantityCanBeUpdated = async (
 ): Promise<void> => {
     const progress = await getServiceOrderProgress(serviceOrderId, quantity);
 
-    if (quantity < progress.programmedCount || quantity < progress.verifiedCount) {
+    if (
+        quantity < progress.reservedCount
+        || quantity < progress.programmedCount
+        || quantity < progress.verifiedCount
+    ) {
         throw new Error(serviceOrderQuantityBelowProgressMessage);
     }
 };
@@ -285,6 +307,7 @@ export const getServiceOrderProgressMap = async (
 
         progressById[serviceOrderId] = createServiceOrderProgress(
             serviceOrder.quantity,
+            resolvedCounts?.reservedCount ?? 0,
             resolvedCounts?.programmedCount ?? 0,
             resolvedCounts?.verifiedCount ?? 0
         );
@@ -303,14 +326,14 @@ export const getServiceOrdersAvailableForProgramming = async (
             const serviceOrderId = getDocumentId(serviceOrder);
             const progress = serviceOrderId && progressById[serviceOrderId]
                 ? progressById[serviceOrderId]
-                : createServiceOrderProgress(serviceOrder.quantity, 0, 0);
+                : createServiceOrderProgress(serviceOrder.quantity, 0, 0, 0);
 
             return {
                 serviceOrder,
                 progress,
             };
         })
-        .filter(({ progress }) => progress.remainingToProgram > 0);
+        .filter(({ progress }) => progress.remainingToCapture > 0);
 };
 
 export const listServiceOrders = async (filters: ServiceOrderFilters = {}): Promise<ServiceOrder[]> => {

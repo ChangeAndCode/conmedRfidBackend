@@ -41,7 +41,7 @@ export const createManualRead = async (
             serviceOrderId,
             partNumber,
             inputMethod: "manual",
-            status: "programmed",
+            status: "captured",
         };
 
         const lot = normalizeOptionalText(req.body.lot);
@@ -95,9 +95,15 @@ export const createManualRead = async (
         }
 
         const manualRead = await ManualReadModel.create(payload);
+        let programmingRecordId = "";
+        let programmingRecordStatus = manualRead.status;
 
         try {
-            await createProgrammingRecordFromManualRead(manualRead as typeof manualRead & { _id?: unknown });
+            const programmingRecord = await createProgrammingRecordFromManualRead(
+                manualRead as typeof manualRead & { _id?: unknown }
+            );
+            programmingRecordId = getDocumentId(programmingRecord as typeof programmingRecord & { _id?: unknown });
+            programmingRecordStatus = programmingRecord.status;
         } catch (error) {
             await ManualReadModel.findByIdAndDelete(getDocumentId(manualRead as typeof manualRead & { _id?: unknown }));
             throw error;
@@ -106,6 +112,11 @@ export const createManualRead = async (
         res.status(201).json({
             message: "Lectura manual registrada",
             data: manualRead,
+            programmingRecord: {
+                id: programmingRecordId,
+                mode: "manual",
+                status: programmingRecordStatus,
+            },
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : "No se pudo registrar la lectura manual";

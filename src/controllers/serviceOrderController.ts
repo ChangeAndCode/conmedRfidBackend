@@ -257,8 +257,10 @@ const toServiceOrderResponse = (
 
     return {
         ...base,
+        reservedCount: progress.reservedCount,
         programmedCount: progress.programmedCount,
         verifiedCount: progress.verifiedCount,
+        remainingToCapture: progress.remainingToCapture,
         remainingToProgram: progress.remainingToProgram,
         remainingToVerify: progress.remainingToVerify,
     };
@@ -277,8 +279,10 @@ const toOpenServiceOrderProgrammingResponse = (
         rfidProgram: serviceOrder.rfidProgram,
         quantity: serviceOrder.quantity,
         status: serviceOrder.status,
+        reservedCount: progress.reservedCount,
         programmedCount: progress.programmedCount,
         verifiedCount: progress.verifiedCount,
+        remainingToCapture: progress.remainingToCapture,
         remainingToProgram: progress.remainingToProgram,
         remainingToVerify: progress.remainingToVerify,
     };
@@ -331,8 +335,10 @@ export const listServiceOrdersHandler = async (req: Request, res: Response): Pro
                 const progress = serviceOrderId && progressById[serviceOrderId]
                     ? progressById[serviceOrderId]
                     : {
+                        reservedCount: 0,
                         programmedCount: 0,
                         verifiedCount: 0,
+                        remainingToCapture: serviceOrder.quantity,
                         remainingToProgram: serviceOrder.quantity,
                         remainingToVerify: serviceOrder.quantity,
                     };

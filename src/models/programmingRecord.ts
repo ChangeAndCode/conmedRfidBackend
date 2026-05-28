@@ -3,10 +3,12 @@ import { Schema, model } from "mongoose";
 export const programmingRecordModes = ["manual", "single_scan", "double_scan"] as const;
 export const programmingRecordSourceTypes = ["manual_read", "single_scan_read", "double_scan_read"] as const;
 export const programmingRecordStatuses = ["captured", "programmed", "verified"] as const;
+export const programmingConnectionMethods = ["serial_port", "android_usb_nfc"] as const;
 
 export type ProgrammingRecordMode = (typeof programmingRecordModes)[number];
 export type ProgrammingRecordSourceType = (typeof programmingRecordSourceTypes)[number];
 export type ProgrammingRecordStatus = (typeof programmingRecordStatuses)[number];
+export type ProgrammingConnectionMethod = (typeof programmingConnectionMethods)[number];
 
 export interface ProgrammingRawSourceData {
     rawReference?: string;
@@ -20,6 +22,29 @@ export interface ProgrammingVerificationData {
     rawScan?: string;
     firstBarcodeRaw?: string;
     secondBarcodeRaw?: string;
+}
+
+export interface ProgrammingRfidData {
+    authCode: string;
+    backendPartNumber: string;
+    legacyRfidPartNumber: string;
+    payloadHex: string;
+    tagByteLength: number;
+    tagId: string;
+}
+
+export interface ProgrammingConnectionData {
+    method: ProgrammingConnectionMethod;
+    deviceId?: string;
+    deviceName?: string;
+    serialPortPath?: string;
+}
+
+export interface ProgrammingExecutionData {
+    connection: ProgrammingConnectionData;
+    notes?: string;
+    programmedBy?: string;
+    rfid: ProgrammingRfidData;
 }
 
 export interface ProgrammingRecord {
@@ -39,6 +64,8 @@ export interface ProgrammingRecord {
     verificationData?: ProgrammingVerificationData;
     verificationMatchedBy?: string;
     verificationNotes?: string;
+    programmedAt?: Date;
+    programmingData?: ProgrammingExecutionData;
     verifiedAt?: Date;
     notes?: string;
     createdBy?: string;
@@ -88,6 +115,98 @@ const programmingVerificationDataSchema = new Schema<ProgrammingVerificationData
         secondBarcodeRaw: {
             type: String,
             trim: true,
+        },
+    },
+    {
+        _id: false,
+    }
+);
+
+const programmingRfidDataSchema = new Schema<ProgrammingRfidData>(
+    {
+        authCode: {
+            type: String,
+            required: true,
+            trim: true,
+            uppercase: true,
+        },
+        backendPartNumber: {
+            type: String,
+            required: true,
+            trim: true,
+            uppercase: true,
+        },
+        legacyRfidPartNumber: {
+            type: String,
+            required: true,
+            trim: true,
+            uppercase: true,
+        },
+        payloadHex: {
+            type: String,
+            required: true,
+            trim: true,
+            uppercase: true,
+        },
+        tagByteLength: {
+            type: Number,
+            required: true,
+            min: 1,
+        },
+        tagId: {
+            type: String,
+            required: true,
+            trim: true,
+            uppercase: true,
+        },
+    },
+    {
+        _id: false,
+    }
+);
+
+const programmingConnectionDataSchema = new Schema<ProgrammingConnectionData>(
+    {
+        method: {
+            type: String,
+            enum: programmingConnectionMethods,
+            required: true,
+        },
+        deviceId: {
+            type: String,
+            trim: true,
+        },
+        deviceName: {
+            type: String,
+            trim: true,
+        },
+        serialPortPath: {
+            type: String,
+            trim: true,
+        },
+    },
+    {
+        _id: false,
+    }
+);
+
+const programmingExecutionDataSchema = new Schema<ProgrammingExecutionData>(
+    {
+        connection: {
+            type: programmingConnectionDataSchema,
+            required: true,
+        },
+        notes: {
+            type: String,
+            trim: true,
+        },
+        programmedBy: {
+            type: String,
+            trim: true,
+        },
+        rfid: {
+            type: programmingRfidDataSchema,
+            required: true,
         },
     },
     {
@@ -168,6 +287,13 @@ const programmingRecordSchema = new Schema<ProgrammingRecord>(
             type: String,
             trim: true,
         },
+        programmedAt: {
+            type: Date,
+        },
+        programmingData: {
+            type: programmingExecutionDataSchema,
+            default: undefined,
+        },
         verifiedAt: {
             type: Date,
         },
@@ -182,7 +308,7 @@ const programmingRecordSchema = new Schema<ProgrammingRecord>(
         status: {
             type: String,
             enum: programmingRecordStatuses,
-            default: "programmed",
+            default: "captured",
             required: true,
         },
     },

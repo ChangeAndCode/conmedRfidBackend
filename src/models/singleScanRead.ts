@@ -81,7 +81,7 @@ const singleScanReadSchema = new Schema<SingleScanRead>(
         status: {
             type: String,
             enum: singleScanReadStatuses,
-            default: "programmed",
+            default: "captured",
             required: true,
         },
     },

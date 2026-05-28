@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
-import { buildLegacyTagPayload, BuiltLegacyTagPayload } from "../services/rfid/legacyTagCodec";
+import { buildLegacyTagPayload } from "../services/rfid/legacyTagCodec";
 import { resolveLegacyRfidPartMappingByBackendPartNumber } from "../services/partConfigService";
-import { ResolvedLegacyRfidPartMapping } from "../services/rfid/legacyTagMapping";
+import { buildLegacyTagPayloadResponseData } from "../services/rfid/legacyTagResponse";
 import { normalizeOptionalText, normalizeRequiredText } from "../utils/requestNormalization";
 
 type BuildLegacyTagPayloadBody = {
@@ -18,23 +18,6 @@ type BuildLegacyTagPayloadBody = {
 type BuildLegacyTagPayloadQuery = {
     debug?: unknown;
     verbose?: unknown;
-};
-
-type BuildLegacyTagPayloadResponseData = {
-    authCode: string;
-    backendPartNumber: string;
-    dateCode: string;
-    details?: {
-        decoded: BuiltLegacyTagPayload["decoded"];
-        initialLifeMinutes: number;
-        remainingLifeMinutes: number;
-    };
-    legacyPartMapping: ResolvedLegacyRfidPartMapping;
-    lot: string;
-    partNumber: string;
-    payloadHex: string;
-    tagByteLength: number;
-    tagId: string;
 };
 
 const normalizeLegacyLotBodyValue = (value: unknown): string => {
@@ -61,35 +44,6 @@ const isEnabledQueryFlag = (value: unknown): boolean => {
     const normalized = value.trim().toLowerCase();
 
     return normalized === "true" || normalized === "1" || normalized === "yes" || normalized === "on";
-};
-
-export const buildLegacyTagPayloadResponseData = (
-    payload: BuiltLegacyTagPayload,
-    backendPartNumber: string,
-    legacyPartMapping: ResolvedLegacyRfidPartMapping,
-    includeDetails: boolean
-): BuildLegacyTagPayloadResponseData => {
-    const responseData: BuildLegacyTagPayloadResponseData = {
-        authCode: payload.authCode,
-        backendPartNumber,
-        dateCode: payload.dateCode,
-        legacyPartMapping,
-        lot: payload.lot,
-        partNumber: payload.partNumber,
-        payloadHex: payload.payloadHex,
-        tagByteLength: payload.tagByteLength,
-        tagId: payload.tagId,
-    };
-
-    if (includeDetails) {
-        responseData.details = {
-            decoded: payload.decoded,
-            initialLifeMinutes: payload.initialLifeMinutes,
-            remainingLifeMinutes: payload.remainingLifeMinutes,
-        };
-    }
-
-    return responseData;
 };
 
 export const buildLegacyTagPayloadHandler = async (

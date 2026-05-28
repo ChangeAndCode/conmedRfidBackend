@@ -1,6 +1,8 @@
 import { DoubleScanRead } from "../models/doubleScanRead";
 import { ManualRead, ManualReadModel } from "../models/manualRead";
 import {
+    ProgrammingConnectionMethod,
+    ProgrammingExecutionData,
     ProgrammingRecord,
     ProgrammingVerificationData,
     ProgrammingRecordMode,
@@ -12,12 +14,16 @@ import { SingleScanRead, SingleScanReadModel } from "../models/singleScanRead";
 import { DoubleScanReadModel } from "../models/doubleScanRead";
 import { parseDoubleScanVerificationReading, parseSingleScanReading } from "./gs1Parser";
 import { VerificationReportStatus } from "../models/verificationReport";
+import { buildLegacyTagPayload } from "./rfid/legacyTagCodec";
+import { BuildLegacyTagPayloadResponseData, buildLegacyTagPayloadResponseData } from "./rfid/legacyTagResponse";
+import { ResolvedLegacyRfidPartMapping } from "./rfid/legacyTagMapping";
 import {
     closeServiceOrderIfVerificationCompleted,
     getDocumentId,
     getServiceOrderById,
     getServiceOrderProgress,
 } from "./serviceOrderService";
+import { resolveLegacyRfidPartMappingByBackendPartNumber } from "./partConfigService";
 import {
     getVerificationReportAvailableActions,
     getVerificationReportByServiceOrderId,
@@ -77,6 +83,36 @@ type VerifyProgrammingRecordInput = {
     verificationNotes?: string | undefined;
 };
 
+type BuildProgrammingRecordRfidPayloadInput = {
+    programmingRecordId: string;
+    tagId: string;
+    includeDetails: boolean;
+};
+
+type CompleteProgrammingRecordInput = {
+    programmingRecordId: string;
+    connectionMethod: ProgrammingConnectionMethod;
+    deviceId?: string | undefined;
+    deviceName?: string | undefined;
+    serialPortPath?: string | undefined;
+    tagId: string;
+    payloadHex?: string | undefined;
+    authCode?: string | undefined;
+    programmingNotes?: string | undefined;
+    programmedBy?: string | undefined;
+};
+
+export type BuildProgrammingRecordRfidPayloadResult = BuildLegacyTagPayloadResponseData & {
+    programmingRecordId: string;
+    programmingRecordStatus: ProgrammingRecordStatus;
+    serviceOrderFolio?: string | undefined;
+};
+
+export type CompleteProgrammingRecordResult = {
+    payload: BuildProgrammingRecordRfidPayloadResult;
+    programmingRecord: ProgrammingRecord;
+};
+
 type VerifiedProgrammingRecordServiceOrderSummary = {
     _id: string;
     folio: string;
@@ -86,8 +122,10 @@ type VerifiedProgrammingRecordServiceOrderSummary = {
     rfidProgram?: string;
     quantity: number;
     status: string;
+    reservedCount: number;
     programmedCount: number;
     verifiedCount: number;
+    remainingToCapture: number;
     remainingToProgram: number;
     remainingToVerify: number;
 };
@@ -232,6 +270,29 @@ export const getProgrammingRecordById = async (id: string): Promise<ProgrammingR
     return ProgrammingRecordModel.findById(id);
 };
 
+export const buildRfidPayloadForProgrammingRecord = async (
+    input: BuildProgrammingRecordRfidPayloadInput
+): Promise<BuildProgrammingRecordRfidPayloadResult> => {
+    const programmingRecord = await ProgrammingRecordModel.findById(input.programmingRecordId);
+
+    if (!programmingRecord) {
+        throw new Error("Programming record no encontrado");
+    }
+
+    const { payload } = await buildProgrammingRecordPayloadCore(
+        programmingRecord as ProgrammingRecord & { _id?: unknown },
+        input.tagId,
+        input.includeDetails
+    );
+
+    return {
+        ...payload,
+        programmingRecordId: getDocumentId(programmingRecord as ProgrammingRecord & { _id?: unknown }),
+        programmingRecordStatus: programmingRecord.status,
+        serviceOrderFolio: programmingRecord.serviceOrderFolio,
+    };
+};
+
 const buildVerificationData = (
     normalizedInput: ResolvedProgrammingRecordInput
 ): ProgrammingVerificationData | undefined => {
@@ -254,6 +315,102 @@ const buildVerificationData = (
     }
 
     return Object.keys(payload).length > 0 ? payload : undefined;
+};
+
+const getProgrammingRecordFieldValue = (
+    value: string | undefined,
+    fieldName: "lot" | "manufactureDate"
+): string => {
+    const normalized = listQueryValue(value);
+
+    if (!normalized) {
+        throw new Error(`El programming record no tiene ${fieldName} suficiente para construir el payload RFID`);
+    }
+
+    return normalized;
+};
+
+const normalizeProgrammingConnectionData = (
+    input: Pick<CompleteProgrammingRecordInput, "connectionMethod" | "deviceId" | "deviceName" | "serialPortPath">
+): ProgrammingExecutionData["connection"] => {
+    const deviceId = listQueryValue(input.deviceId);
+    const deviceName = listQueryValue(input.deviceName);
+
+    if (input.connectionMethod === "serial_port") {
+        const serialPortPath = listQueryValue(input.serialPortPath);
+
+        if (!serialPortPath) {
+            throw new Error("El campo serialPortPath es obligatorio cuando connectionMethod es serial_port");
+        }
+
+        const connectionData: ProgrammingExecutionData["connection"] = {
+            method: "serial_port",
+            serialPortPath,
+        };
+
+        if (deviceId) {
+            connectionData.deviceId = deviceId;
+        }
+
+        if (deviceName) {
+            connectionData.deviceName = deviceName;
+        }
+
+        return connectionData;
+    }
+
+    const connectionData: ProgrammingExecutionData["connection"] = {
+        method: "android_usb_nfc",
+    };
+
+    if (deviceId) {
+        connectionData.deviceId = deviceId;
+    }
+
+    if (deviceName) {
+        connectionData.deviceName = deviceName;
+    }
+
+    return connectionData;
+};
+
+const assertProgrammingRecordCanBuildRfidPayload = (record: ProgrammingRecord): void => {
+    if (record.status === "verified") {
+        throw new Error("El programming record ya fue verificado y no puede volver a programarse");
+    }
+
+    if (record.status === "programmed") {
+        throw new Error("El programming record ya fue marcado como programado");
+    }
+};
+
+const buildProgrammingRecordPayloadCore = async (
+    record: ProgrammingRecord & { _id?: unknown },
+    tagId: string,
+    includeDetails: boolean
+): Promise<{
+    legacyPartMapping: ResolvedLegacyRfidPartMapping;
+    payload: BuildLegacyTagPayloadResponseData;
+}> => {
+    assertProgrammingRecordCanBuildRfidPayload(record);
+
+    const legacyPartMapping = await resolveLegacyRfidPartMappingByBackendPartNumber(record.partNumber);
+    const builtPayload = buildLegacyTagPayload({
+        partNumber: legacyPartMapping.legacyRfidPartNumber,
+        lot: getProgrammingRecordFieldValue(record.lot, "lot"),
+        manufactureDate: getProgrammingRecordFieldValue(record.manufactureDate, "manufactureDate"),
+        tagId,
+    });
+
+    return {
+        legacyPartMapping,
+        payload: buildLegacyTagPayloadResponseData(
+            builtPayload,
+            record.partNumber,
+            legacyPartMapping,
+            includeDetails
+        ),
+    };
 };
 
 const updateSourceReadStatus = async (
@@ -312,8 +469,10 @@ const buildVerifiedProgrammingRecordServiceOrderSummary = async (
         readingMode: serviceOrder.readingMode,
         quantity: serviceOrder.quantity,
         status: serviceOrder.status,
+        reservedCount: progress.reservedCount,
         programmedCount: progress.programmedCount,
         verifiedCount: progress.verifiedCount,
+        remainingToCapture: progress.remainingToCapture,
         remainingToProgram: progress.remainingToProgram,
         remainingToVerify: progress.remainingToVerify,
     };
@@ -345,6 +504,83 @@ const buildVerifiedProgrammingRecordServiceOrderSummary = async (
                 ? getVerificationReportAvailableActions(verificationReport.status)
                 : null,
         },
+    };
+};
+
+export const completeProgrammingRecord = async (
+    input: CompleteProgrammingRecordInput
+): Promise<CompleteProgrammingRecordResult> => {
+    const programmingRecord = await ProgrammingRecordModel.findById(input.programmingRecordId);
+
+    if (!programmingRecord) {
+        throw new Error("Programming record no encontrado");
+    }
+
+    const { legacyPartMapping, payload } = await buildProgrammingRecordPayloadCore(
+        programmingRecord as ProgrammingRecord & { _id?: unknown },
+        input.tagId,
+        false
+    );
+
+    const providedPayloadHex = listQueryValue(input.payloadHex)?.toUpperCase();
+
+    if (providedPayloadHex && providedPayloadHex !== payload.payloadHex) {
+        throw new Error("El payloadHex reportado no coincide con el payload RFID legado esperado");
+    }
+
+    const providedAuthCode = listQueryValue(input.authCode)?.toUpperCase();
+
+    if (providedAuthCode && providedAuthCode !== payload.authCode) {
+        throw new Error("El authCode reportado no coincide con el AuthCode esperado");
+    }
+
+    const programmingData: ProgrammingExecutionData = {
+        connection: normalizeProgrammingConnectionData(input),
+        rfid: {
+            authCode: payload.authCode,
+            backendPartNumber: payload.backendPartNumber,
+            legacyRfidPartNumber: legacyPartMapping.legacyRfidPartNumber,
+            payloadHex: payload.payloadHex,
+            tagByteLength: payload.tagByteLength,
+            tagId: payload.tagId,
+        },
+    };
+
+    const programmingNotes = listQueryValue(input.programmingNotes);
+
+    if (programmingNotes) {
+        programmingData.notes = programmingNotes;
+    }
+
+    const programmedBy = listQueryValue(input.programmedBy);
+
+    if (programmedBy) {
+        programmingData.programmedBy = programmedBy;
+    }
+
+    programmingRecord.status = "programmed";
+    programmingRecord.programmedAt = new Date();
+    programmingRecord.programmingData = programmingData;
+    await programmingRecord.save();
+
+    try {
+        await updateSourceReadStatus(programmingRecord, "programmed");
+    } catch (error) {
+        programmingRecord.status = "captured";
+        delete programmingRecord.programmedAt;
+        delete programmingRecord.programmingData;
+        await programmingRecord.save();
+        throw error;
+    }
+
+    return {
+        payload: {
+            ...payload,
+            programmingRecordId: getDocumentId(programmingRecord as ProgrammingRecord & { _id?: unknown }),
+            programmingRecordStatus: programmingRecord.status,
+            serviceOrderFolio: programmingRecord.serviceOrderFolio,
+        },
+        programmingRecord,
     };
 };
 
@@ -473,6 +709,10 @@ export const verifyProgrammingRecord = async (
 
     if (!programmingRecord) {
         throw new Error("Programming record no encontrado");
+    }
+
+    if (programmingRecord.status === "captured") {
+        throw new Error("El programming record aun no ha sido programado");
     }
 
     if (programmingRecord.status === "verified") {

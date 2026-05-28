@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildLegacyTagPayload } from "../services/rfid/legacyTagCodec";
-import { buildLegacyTagPayloadResponseData } from "./rfidController";
+import { buildLegacyTagPayloadResponseData } from "../services/rfid/legacyTagResponse";
 
 const buildSamplePayload = () => buildLegacyTagPayload({
     dateCode: "240101",
