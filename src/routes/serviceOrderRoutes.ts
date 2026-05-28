@@ -46,9 +46,14 @@ serviceOrderRouter.post(
     createServiceOrderChangeRequest
 );
 
+serviceOrderRouter.get(
+    "/",
+    setApiAction("service_order_list", "Ordenes de servicio listadas"),
+    listServiceOrdersHandler
+);
+
 serviceOrderRouter.use(requireAuth, requireRoles("supervisor"));
 
-serviceOrderRouter.get("/", setApiAction("service_order_list", "Ordenes de servicio listadas"), listServiceOrdersHandler);
 serviceOrderRouter.post("/", setApiAction("service_order_create"), createServiceOrder);
 serviceOrderRouter.get(
     "/change-requests",
