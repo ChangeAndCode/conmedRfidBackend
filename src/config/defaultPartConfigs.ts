@@ -5,33 +5,41 @@ type SeedPartConfig = Omit<PartConfig, "createdAt" | "updatedAt">;
 export const defaultPartConfigs: SeedPartConfig[] = [
     {
         partNumber: "EMVS353",
+        legacyRfidPartNumber: "EMVS353",
         readingMode: "manual",
         isActive: true,
         notes: "Carga inicial del catalogo manual",
+        usesLegacyRfidPayload: true,
     },
     {
         partNumber: "QVC-MSF8D-1",
         readingMode: "manual",
         isActive: true,
         notes: "Carga inicial del catalogo manual",
+        usesLegacyRfidPayload: false,
     },
     {
         partNumber: "A2A00231",
         readingMode: "manual",
         isActive: true,
         notes: "Carga inicial del catalogo manual",
+        usesLegacyRfidPayload: false,
     },
     {
         partNumber: "A74802",
+        legacyRfidPartNumber: "A74802",
         readingMode: "manual",
         isActive: true,
         notes: "Carga inicial del catalogo manual",
+        usesLegacyRfidPayload: true,
     },
     {
         partNumber: "A84962",
+        legacyRfidPartNumber: "A84962",
         readingMode: "manual",
         isActive: true,
         notes: "Carga inicial del catalogo manual",
+        usesLegacyRfidPayload: true,
     },
     {
         partNumber: "VSXLLM01",
@@ -42,6 +50,7 @@ export const defaultPartConfigs: SeedPartConfig[] = [
         expectedLotLength: 9,
         isActive: true,
         notes: "Requiere dos codigos de barras",
+        usesLegacyRfidPayload: false,
     },
     {
         partNumber: "VSXLLM02",
@@ -52,6 +61,7 @@ export const defaultPartConfigs: SeedPartConfig[] = [
         expectedLotLength: 9,
         isActive: true,
         notes: "Requiere dos codigos de barras",
+        usesLegacyRfidPayload: false,
     },
     {
         partNumber: "SEA3700",
@@ -62,5 +72,6 @@ export const defaultPartConfigs: SeedPartConfig[] = [
         expectedLotLength: 9,
         isActive: true,
         notes: "Requiere dos codigos de barras",
+        usesLegacyRfidPayload: false,
     },
 ];

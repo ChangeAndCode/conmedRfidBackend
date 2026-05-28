@@ -22,6 +22,8 @@ type PartConfigBody = {
     description?: unknown;
     readingMode?: unknown;
     rfidProgram?: unknown;
+    usesLegacyRfidPayload?: unknown;
+    legacyRfidPartNumber?: unknown;
     expectedGtin?: unknown;
     filterLabel?: unknown;
     expectedLotLength?: unknown;
@@ -61,6 +63,24 @@ const normalizeExpectedGtin = (value: unknown): string | undefined => {
     return normalized;
 };
 
+const normalizeLegacyRfidPartNumber = (value: unknown): string | undefined => {
+    const normalized = normalizeOptionalText(value);
+
+    if (!normalized) {
+        return undefined;
+    }
+
+    if (normalized.length > 10) {
+        throw new Error("El campo legacyRfidPartNumber no puede exceder 10 caracteres");
+    }
+
+    if (!/^[\x20-\x7E]+$/.test(normalized)) {
+        throw new Error("El campo legacyRfidPartNumber solo permite caracteres ASCII imprimibles");
+    }
+
+    return normalized;
+};
+
 const validatePartConfig = (config: PartConfig): void => {
     if (config.readingMode === "double_scan") {
         if (!config.rfidProgram) {
@@ -76,6 +96,13 @@ const validatePartConfig = (config: PartConfig): void => {
         }
     }
 
+    if (config.usesLegacyRfidPayload) {
+        if (!config.legacyRfidPartNumber) {
+            throw new Error("usesLegacyRfidPayload requiere legacyRfidPartNumber");
+        }
+    } else if (config.legacyRfidPartNumber) {
+        throw new Error("legacyRfidPartNumber requiere usesLegacyRfidPayload = true");
+    }
 };
 
 const validatePartConfigCatalogReferences = async (
@@ -105,6 +132,7 @@ const validatePartConfigCatalogReferences = async (
 const createBasePartConfig = (partNumber: string, readingMode: ReadingMode, isActive: boolean): PartConfig => ({
     partNumber,
     readingMode,
+    usesLegacyRfidPayload: false,
     isActive,
 });
 
@@ -115,6 +143,14 @@ const copyOptionalFields = (source: PartConfig, target: PartConfig): void => {
 
     if (source.rfidProgram) {
         target.rfidProgram = source.rfidProgram;
+    }
+
+    if (source.usesLegacyRfidPayload) {
+        target.usesLegacyRfidPayload = source.usesLegacyRfidPayload;
+    }
+
+    if (source.legacyRfidPartNumber) {
+        target.legacyRfidPartNumber = source.legacyRfidPartNumber;
     }
 
     if (source.expectedGtin) {
@@ -145,6 +181,26 @@ const assignStringField = (
     }
 
     delete target[field];
+};
+
+const assignBooleanField = (
+    target: PartConfig,
+    field: "usesLegacyRfidPayload",
+    value: boolean
+): void => {
+    target[field] = value;
+};
+
+const assignLegacyRfidPartNumberField = (
+    target: PartConfig,
+    value: string | undefined
+): void => {
+    if (value) {
+        target.legacyRfidPartNumber = value;
+        return;
+    }
+
+    delete target.legacyRfidPartNumber;
 };
 
 const assignUppercaseField = (
@@ -243,6 +299,8 @@ export const createPartConfig = async (
 
         assignStringField(payload, "description", normalizeOptionalText(req.body.description));
         assignUppercaseField(payload, "rfidProgram", normalizeOptionalText(req.body.rfidProgram));
+        assignBooleanField(payload, "usesLegacyRfidPayload", normalizeOptionalBoolean(req.body.usesLegacyRfidPayload) ?? false);
+        assignLegacyRfidPartNumberField(payload, normalizeLegacyRfidPartNumber(req.body.legacyRfidPartNumber));
         assignStringField(payload, "expectedGtin", normalizeExpectedGtin(req.body.expectedGtin));
         assignStringField(payload, "filterLabel", normalizeOptionalText(req.body.filterLabel));
         assignNumberField(
@@ -320,6 +378,23 @@ export const updatePartConfig = async (
 
         if (hasOwn(req.body, "rfidProgram")) {
             assignUppercaseField(nextConfig, "rfidProgram", normalizeOptionalText(req.body.rfidProgram));
+        }
+
+        if (hasOwn(req.body, "usesLegacyRfidPayload")) {
+            const usesLegacyRfidPayload = normalizeOptionalBoolean(req.body.usesLegacyRfidPayload);
+
+            if (typeof usesLegacyRfidPayload !== "boolean") {
+                throw new Error("El campo usesLegacyRfidPayload no es valido");
+            }
+
+            assignBooleanField(nextConfig, "usesLegacyRfidPayload", usesLegacyRfidPayload);
+        }
+
+        if (hasOwn(req.body, "legacyRfidPartNumber")) {
+            assignLegacyRfidPartNumberField(
+                nextConfig,
+                normalizeLegacyRfidPartNumber(req.body.legacyRfidPartNumber)
+            );
         }
 
         if (hasOwn(req.body, "expectedGtin")) {
