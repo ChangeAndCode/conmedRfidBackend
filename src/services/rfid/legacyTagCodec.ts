@@ -77,8 +77,15 @@ const buildEmptyPayloadHex = (): string => legacyTagDefaultHexByte.repeat(legacy
 
 const padHex = (value: string, length: number): string => value.padStart(length, "0").toUpperCase();
 
-const normalizeHex = (value: string, fieldName: string): string => {
-    const normalized = value.replace(/\s+/g, "").toUpperCase();
+const normalizeHex = (
+    value: string,
+    fieldName: string,
+    options: {
+        allowCommonSeparators?: boolean;
+    } = {}
+): string => {
+    const normalized = (options.allowCommonSeparators ? value.replace(/[\s:-]+/g, "") : value.replace(/\s+/g, ""))
+        .toUpperCase();
 
     if (normalized.length === 0) {
         throw new Error(`El campo ${fieldName} es obligatorio`);
@@ -194,7 +201,7 @@ const getDecodedLifeMultiplier = (partNumber: string): 2 | 4 => {
 
 export const calculateLegacyAuthCode = (partNumber: string, tagId: string): string => {
     const normalizedPartNumber = normalizeAscii(partNumber, "partNumber", legacyTagFieldDefinitions.partNumber.byteLength);
-    const normalizedTagId = normalizeHex(tagId, "tagId");
+    const normalizedTagId = normalizeHex(tagId, "tagId", { allowCommonSeparators: true });
     const tempValue = `${normalizedTagId}0000`;
     let crcValue = 65535;
 
@@ -311,7 +318,7 @@ export const buildLegacyTagPayload = (input: BuildLegacyTagPayloadInput): BuiltL
         "dateCode",
         legacyTagFieldDefinitions.dateCode.byteLength
     );
-    const tagId = normalizeHex(input.tagId, "tagId");
+    const tagId = normalizeHex(input.tagId, "tagId", { allowCommonSeparators: true });
     const authCode = calculateLegacyAuthCode(partNumber, tagId);
     const lifeConfig = getLegacyTagLifeConfig(partNumber);
     const initialLifeEncodedValue = lifeConfig.initialLifeMinutes * lifeConfig.multiplier;

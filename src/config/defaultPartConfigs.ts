@@ -74,4 +74,16 @@ export const defaultPartConfigs: SeedPartConfig[] = [
         notes: "Requiere dos codigos de barras",
         usesLegacyRfidPayload: false,
     },
+    {
+        partNumber: "C32-25-001",
+        legacyRfidPartNumber: "CTVS353",
+        readingMode: "single_scan",
+        rfidProgram: "CTVS353",
+        expectedGtin: "20845854081720",
+        filterLabel: "903008",
+        expectedLotLength: 9,
+        isActive: true,
+        notes: "Requiere un codigo de barras; payload legado por CTVS353",
+        usesLegacyRfidPayload: true,
+    },
 ];

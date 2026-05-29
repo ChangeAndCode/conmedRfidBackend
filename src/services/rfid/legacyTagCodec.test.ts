@@ -8,6 +8,12 @@ test("calculateLegacyAuthCode preserves known EMVS353 legacy result", () => {
     assert.equal(authCode, "45B9");
 });
 
+test("calculateLegacyAuthCode accepts tagId values with common separators", () => {
+    const authCode = calculateLegacyAuthCode("EMVS353", "E0:04:01:00:4F:12:34:56");
+
+    assert.equal(authCode, "45B9");
+});
+
 test("buildLegacyTagPayload preserves known legacy payload layout", () => {
     const payload = buildLegacyTagPayload({
         dateCode: "240101",
@@ -26,6 +32,21 @@ test("buildLegacyTagPayload preserves known legacy payload layout", () => {
     assert.equal(payload.decoded.filterReset, "00000000");
     assert.equal(payload.decoded.initialLifeMinutes, 35 * 60);
     assert.equal(payload.decoded.remainingLife1Minutes, 35 * 60);
+});
+
+test("buildLegacyTagPayload normalizes tagId values read from NFC tools", () => {
+    const payload = buildLegacyTagPayload({
+        dateCode: "240101",
+        lot: "12345678",
+        partNumber: "EMVS353",
+        tagId: "E0:04:01:00:4F:12:34:56",
+    });
+
+    assert.equal(payload.tagId, "E00401004F123456");
+    assert.equal(
+        payload.payloadHex,
+        "45B96810681097EF681097EF454D56533335332020200000000000BC614E323430313031202020203030303030303030"
+    );
 });
 
 test("decodeLegacyTagPayload exposes the same values after a roundtrip", () => {
