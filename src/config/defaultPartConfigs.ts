@@ -43,6 +43,7 @@ export const defaultPartConfigs: SeedPartConfig[] = [
     },
     {
         partNumber: "VSXLLM01",
+        legacyRfidPartNumber: "VSXLL01",
         readingMode: "double_scan",
         rfidProgram: "VSXLL01",
         expectedGtin: "00851136001566",
@@ -50,10 +51,11 @@ export const defaultPartConfigs: SeedPartConfig[] = [
         expectedLotLength: 9,
         isActive: true,
         notes: "Requiere dos codigos de barras",
-        usesLegacyRfidPayload: false,
+        usesLegacyRfidPayload: true,
     },
     {
         partNumber: "VSXLLM02",
+        legacyRfidPartNumber: "VSXLL01",
         readingMode: "double_scan",
         rfidProgram: "VSXLL01",
         expectedGtin: "00851136001566",
@@ -61,7 +63,7 @@ export const defaultPartConfigs: SeedPartConfig[] = [
         expectedLotLength: 9,
         isActive: true,
         notes: "Requiere dos codigos de barras",
-        usesLegacyRfidPayload: false,
+        usesLegacyRfidPayload: true,
     },
     {
         partNumber: "SEA3700",
