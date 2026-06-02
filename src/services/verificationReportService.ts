@@ -1,5 +1,10 @@
 import { ProgrammingRecord, ProgrammingRecordModel } from "../models/programmingRecord";
 import {
+    ServiceOrder,
+    ServiceOrderModel,
+    ServiceOrderStatus,
+} from "../models/serviceOrder";
+import {
     VerificationReport,
     VerificationReportHistoryEvent,
     VerificationReportHistoryEventType,
@@ -33,7 +38,10 @@ type UpdateVerificationReportStatusInput = {
     printInterruptionId?: string;
     notes?: string;
     actor?: VerificationReportActor;
+    source?: VerificationReportActionSource;
 };
+
+export type VerificationReportActionSource = "authenticated-dashboard" | "public-station";
 
 type VerificationReportHeader = {
     partNumber: string;
@@ -44,6 +52,10 @@ type VerificationReportHeader = {
 type VerificationReportDocument = VerificationReport & {
     history: VerificationReportHistoryEvent[];
     save: () => Promise<VerificationReportDocument>;
+};
+
+type ServiceOrderDocument = ServiceOrder & {
+    save: () => Promise<ServiceOrderDocument>;
 };
 
 export type VerificationReportAvailableActions = {
@@ -326,6 +338,60 @@ const getExistingVerificationReport = async (id: string): Promise<VerificationRe
     return verificationReport;
 };
 
+const getExistingServiceOrder = async (serviceOrderId: string): Promise<ServiceOrderDocument> => {
+    const serviceOrder = await ServiceOrderModel.findById(serviceOrderId) as ServiceOrderDocument | null;
+
+    if (!serviceOrder) {
+        throw new Error("La orden de servicio asociada no existe");
+    }
+
+    return serviceOrder;
+};
+
+const ensureServiceOrderStatus = (
+    serviceOrder: ServiceOrder,
+    expectedStatuses: ServiceOrderStatus[],
+    message: string
+): void => {
+    if (!expectedStatuses.includes(serviceOrder.status)) {
+        throw new Error(message);
+    }
+};
+
+const blockServiceOrderForPrintInterruption = async (serviceOrderId: string): Promise<void> => {
+    const serviceOrder = await getExistingServiceOrder(serviceOrderId);
+
+    if (serviceOrder.status === "blocked") {
+        return;
+    }
+
+    ensureServiceOrderStatus(
+        serviceOrder,
+        ["closed"],
+        "La orden de servicio asociada no tiene un estado valido para marcar la impresion como interrumpida"
+    );
+
+    serviceOrder.status = "blocked";
+    await serviceOrder.save();
+};
+
+const closeServiceOrderAfterPrinted = async (serviceOrderId: string): Promise<void> => {
+    const serviceOrder = await getExistingServiceOrder(serviceOrderId);
+
+    if (serviceOrder.status === "closed") {
+        return;
+    }
+
+    ensureServiceOrderStatus(
+        serviceOrder,
+        ["blocked"],
+        "La orden de servicio asociada no tiene un estado valido para completar la impresion"
+    );
+
+    serviceOrder.status = "closed";
+    await serviceOrder.save();
+};
+
 export const markVerificationReportPrintInterrupted = async (
     input: UpdateVerificationReportStatusInput
 ): Promise<VerificationReport> => {
@@ -351,6 +417,7 @@ export const markVerificationReportPrintInterrupted = async (
         buildHistoryEvent("print_interrupted", input.actor, input.notes, interruptionTitle)
     );
     await verificationReport.save();
+    await blockServiceOrderForPrintInterruption(verificationReport.serviceOrderId);
 
     return verificationReport;
 };
@@ -359,6 +426,7 @@ export const markVerificationReportAsPrinted = async (
     input: UpdateVerificationReportStatusInput
 ): Promise<VerificationReport> => {
     const verificationReport = await getExistingVerificationReport(input.verificationReportId);
+    const source = input.source ?? "authenticated-dashboard";
 
     if (verificationReport.status === "printed") {
         throw new Error("El reporte ya fue marcado como impreso");
@@ -368,10 +436,17 @@ export const markVerificationReportAsPrinted = async (
         throw new Error("El reporte ya fue reimpreso; no puede marcarse nuevamente como impresion inicial");
     }
 
+    if (source === "public-station" && verificationReport.status === "print_interrupted") {
+        throw new Error(
+            "El reporte con impresion interrumpida debe completarse desde el dashboard del supervisor"
+        );
+    }
+
     verificationReport.status = "printed";
     verificationReport.lastPrintedAt = new Date();
     verificationReport.history.push(buildHistoryEvent("printed", input.actor, input.notes));
     await verificationReport.save();
+    await closeServiceOrderAfterPrinted(verificationReport.serviceOrderId);
 
     return verificationReport;
 };
