@@ -5,6 +5,7 @@ import {
     getProgrammingRecordByIdHandler,
     listProgrammingRecordsHandler,
     resolveProgrammingRecordHandler,
+    resolveVerificationHandler,
     verifyProgrammingRecordHandler,
 } from "../controllers/programmingRecordController";
 import { setApiAction } from "../middleware/apiRequestLogger";
@@ -16,6 +17,11 @@ programmingRecordRouter.post(
     "/resolve",
     setApiAction("programming_record_resolve", "Programming record resuelto"),
     resolveProgrammingRecordHandler
+);
+programmingRecordRouter.post(
+    "/resolve-verification",
+    setApiAction("programming_record_resolve_verification", "Verificacion RFID resuelta"),
+    resolveVerificationHandler
 );
 programmingRecordRouter.post(
     "/:id/build-rfid-payload",

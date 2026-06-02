@@ -22,6 +22,17 @@ export interface ProgrammingVerificationData {
     rawScan?: string;
     firstBarcodeRaw?: string;
     secondBarcodeRaw?: string;
+    tagId?: string;
+    rfidPayloadText?: string;
+    rfidPayload?: ProgrammingVerificationRfidPayload;
+}
+
+export interface ProgrammingVerificationRfidPayload {
+    partNumber: string;
+    rawPartNumber: string;
+    lot: string;
+    manufactureDate: string;
+    tagId: string;
 }
 
 export interface ProgrammingRfidData {
@@ -115,6 +126,54 @@ const programmingVerificationDataSchema = new Schema<ProgrammingVerificationData
         secondBarcodeRaw: {
             type: String,
             trim: true,
+        },
+        tagId: {
+            type: String,
+            trim: true,
+            uppercase: true,
+        },
+        rfidPayloadText: {
+            type: String,
+            trim: true,
+            uppercase: true,
+        },
+        rfidPayload: {
+            type: new Schema<ProgrammingVerificationRfidPayload>(
+                {
+                    partNumber: {
+                        type: String,
+                        required: true,
+                        trim: true,
+                        uppercase: true,
+                    },
+                    rawPartNumber: {
+                        type: String,
+                        required: true,
+                        trim: true,
+                        uppercase: true,
+                    },
+                    lot: {
+                        type: String,
+                        required: true,
+                        trim: true,
+                    },
+                    manufactureDate: {
+                        type: String,
+                        required: true,
+                        trim: true,
+                    },
+                    tagId: {
+                        type: String,
+                        required: true,
+                        trim: true,
+                        uppercase: true,
+                    },
+                },
+                {
+                    _id: false,
+                }
+            ),
+            default: undefined,
         },
     },
     {
