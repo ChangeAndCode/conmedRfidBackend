@@ -11,6 +11,8 @@ export interface PartConfig {
     description?: string;
     readingMode: ReadingMode;
     rfidProgram?: string;
+    usesLegacyRfidPayload: boolean;
+    legacyRfidPartNumber?: string;
     expectedGtin?: string;
     filterLabel?: string;
     expectedLotLength?: number;
@@ -46,6 +48,15 @@ const partConfigSchema = new Schema<PartConfig>(
             type: String,
             trim: true,
             uppercase: true,
+        },
+        usesLegacyRfidPayload: {
+            type: Boolean,
+            default: false,
+            required: true,
+        },
+        legacyRfidPartNumber: {
+            type: String,
+            trim: true,
         },
         expectedGtin: {
             type: String,
@@ -90,5 +101,6 @@ const partConfigSchema = new Schema<PartConfig>(
 partConfigSchema.index({ partNumber: 1 }, { unique: true });
 partConfigSchema.index({ readingMode: 1, isActive: 1, partNumber: 1 });
 partConfigSchema.index({ expectedGtin: 1, readingMode: 1, isActive: 1 });
+partConfigSchema.index({ usesLegacyRfidPayload: 1, legacyRfidPartNumber: 1 });
 
 export const PartConfigModel = model<PartConfig>("PartConfig", partConfigSchema);

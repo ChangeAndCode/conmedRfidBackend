@@ -9,12 +9,17 @@ import {
     programmingRecordStatuses,
 } from "../models/programmingRecord";
 import {
+    buildRfidPayloadForProgrammingRecord,
+    completeProgrammingRecord,
     getProgrammingRecordById,
     listProgrammingRecords,
     resolveProgrammingRecord,
+    resolveVerification,
+    tagAlreadyVerifiedMessage,
     verifyProgrammingRecord,
 } from "../services/programmingRecordService";
-import { normalizeOptionalText } from "../utils/requestNormalization";
+import { ProgrammingConnectionMethod, programmingConnectionMethods } from "../models/programmingRecord";
+import { normalizeOptionalText, normalizeRequiredText } from "../utils/requestNormalization";
 
 const normalizeProgrammingRecordMode = (value: unknown): ProgrammingRecordMode | undefined => {
     const normalized = normalizeOptionalText(value)?.toLowerCase();
@@ -71,7 +76,41 @@ type VerifyProgrammingRecordBody = {
     rawScan?: unknown;
     firstBarcodeRaw?: unknown;
     secondBarcodeRaw?: unknown;
+    tagId?: unknown;
+    rfidPayloadText?: unknown;
     verificationNotes?: unknown;
+};
+
+type ResolveVerificationBody = {
+    serviceOrderId?: unknown;
+    mode?: unknown;
+    rawReference?: unknown;
+    rawScan?: unknown;
+    firstBarcodeRaw?: unknown;
+    secondBarcodeRaw?: unknown;
+    tagId?: unknown;
+    rfidPayloadText?: unknown;
+};
+
+type BuildProgrammingRecordRfidPayloadBody = {
+    tagId?: unknown;
+};
+
+type BuildProgrammingRecordRfidPayloadQuery = {
+    debug?: unknown;
+    verbose?: unknown;
+};
+
+type CompleteProgrammingRecordBody = {
+    authCode?: unknown;
+    connectionMethod?: unknown;
+    deviceId?: unknown;
+    deviceName?: unknown;
+    payloadHex?: unknown;
+    programmedBy?: unknown;
+    programmingNotes?: unknown;
+    serialPortPath?: unknown;
+    tagId?: unknown;
 };
 
 const getResolveInputTypeCount = (input: {
@@ -87,6 +126,52 @@ const getResolveInputTypeCount = (input: {
         Boolean(input.rawScan),
         hasDoubleScanInput,
     ].filter(Boolean).length;
+};
+
+const isEnabledQueryFlag = (value: unknown): boolean => {
+    if (Array.isArray(value)) {
+        return value.some((item) => isEnabledQueryFlag(item));
+    }
+
+    if (typeof value !== "string") {
+        return false;
+    }
+
+    const normalized = value.trim().toLowerCase();
+
+    return normalized === "true" || normalized === "1" || normalized === "yes" || normalized === "on";
+};
+
+const normalizeProgrammingConnectionMethod = (value: unknown): ProgrammingConnectionMethod => {
+    const normalized = normalizeRequiredText(value, "connectionMethod").toLowerCase();
+
+    if (!programmingConnectionMethods.includes(normalized as ProgrammingConnectionMethod)) {
+        throw new Error("El campo connectionMethod no es valido");
+    }
+
+    return normalized as ProgrammingConnectionMethod;
+};
+
+const getProgrammingRecordVerificationStatusCode = (message: string): number => {
+    if (
+        message === tagAlreadyVerifiedMessage
+        || message.includes("ya fue verificado")
+        || message.includes("aun no ha sido programado")
+        || message.includes("no coincide")
+        || message.includes("varias programaciones coincidentes")
+    ) {
+        return 409;
+    }
+
+    if (
+        message.includes("no encontrado")
+        || message.includes("no existe")
+        || message.includes("No se encontro una programacion")
+    ) {
+        return 404;
+    }
+
+    return 400;
 };
 
 export const listProgrammingRecordsHandler = async (req: Request, res: Response): Promise<void> => {
@@ -181,6 +266,77 @@ export const getProgrammingRecordByIdHandler = async (
     res.json({ data: record });
 };
 
+export const buildProgrammingRecordRfidPayloadHandler = async (
+    req: Request<{ id: string }, unknown, BuildProgrammingRecordRfidPayloadBody, BuildProgrammingRecordRfidPayloadQuery>,
+    res: Response
+): Promise<void> => {
+    try {
+        const { id } = req.params;
+
+        if (!isValidObjectId(id)) {
+            res.status(400).json({ message: "El id no es valido" });
+            return;
+        }
+
+        const payload = await buildRfidPayloadForProgrammingRecord({
+            programmingRecordId: id,
+            tagId: normalizeRequiredText(req.body.tagId, "tagId"),
+            includeDetails: isEnabledQueryFlag(req.query.verbose) || isEnabledQueryFlag(req.query.debug),
+        });
+
+        res.json({
+            message: "Payload RFID de programming record construido correctamente",
+            data: payload,
+        });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "No se pudo construir el payload RFID del programming record";
+        res.status(message.includes("no encontrado") ? 404 : 400).json({ message });
+    }
+};
+
+export const completeProgrammingRecordHandler = async (
+    req: Request<{ id: string }, unknown, CompleteProgrammingRecordBody>,
+    res: Response
+): Promise<void> => {
+    try {
+        const { id } = req.params;
+
+        if (!isValidObjectId(id)) {
+            res.status(400).json({ message: "El id no es valido" });
+            return;
+        }
+
+        const programmingResult = await completeProgrammingRecord({
+            programmingRecordId: id,
+            connectionMethod: normalizeProgrammingConnectionMethod(req.body.connectionMethod),
+            deviceId: normalizeOptionalText(req.body.deviceId),
+            deviceName: normalizeOptionalText(req.body.deviceName),
+            serialPortPath: normalizeOptionalText(req.body.serialPortPath),
+            tagId: normalizeRequiredText(req.body.tagId, "tagId"),
+            payloadHex: normalizeOptionalText(req.body.payloadHex),
+            authCode: normalizeOptionalText(req.body.authCode),
+            programmingNotes: normalizeOptionalText(req.body.programmingNotes),
+            programmedBy: normalizeOptionalText(req.body.programmedBy) ?? req.authUser?.username,
+        });
+
+        res.json({
+            message: "Programming record marcado como programado correctamente",
+            data: programmingResult,
+        });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "No se pudo completar la programacion RFID";
+        const statusCode = message.includes("ya fue marcado como programado")
+            || message.includes("ya fue verificado")
+            || message.includes("no coincide")
+            ? 409
+            : message.includes("no encontrado")
+                ? 404
+                : 400;
+
+        res.status(statusCode).json({ message });
+    }
+};
+
 export const resolveProgrammingRecordHandler = async (
     req: Request<unknown, unknown, ResolveProgrammingRecordBody>,
     res: Response
@@ -257,6 +413,65 @@ export const resolveProgrammingRecordHandler = async (
     }
 };
 
+export const resolveVerificationHandler = async (
+    req: Request<unknown, unknown, ResolveVerificationBody>,
+    res: Response
+): Promise<void> => {
+    try {
+        const serviceOrderId = normalizeRequiredText(req.body.serviceOrderId, "serviceOrderId");
+        const mode = normalizeProgrammingRecordMode(req.body.mode);
+        const rawReference = normalizeOptionalText(req.body.rawReference);
+        const rawScan = normalizeOptionalText(req.body.rawScan);
+        const firstBarcodeRaw = normalizeOptionalText(req.body.firstBarcodeRaw);
+        const secondBarcodeRaw = normalizeOptionalText(req.body.secondBarcodeRaw);
+        const providedInputTypeCount = getResolveInputTypeCount({
+            rawReference,
+            rawScan,
+            firstBarcodeRaw,
+            secondBarcodeRaw,
+        });
+
+        if (!mode) {
+            throw new Error("El campo mode es obligatorio");
+        }
+
+        if (providedInputTypeCount !== 1) {
+            throw new Error("Debes enviar exactamente un tipo de evidencia base");
+        }
+
+        if (mode === "manual" && !rawReference) {
+            throw new Error("El campo rawReference es obligatorio para una verificacion manual");
+        }
+
+        if (mode === "single_scan" && !rawScan) {
+            throw new Error("El campo rawScan es obligatorio para una verificacion single scan");
+        }
+
+        if (mode === "double_scan" && (!firstBarcodeRaw || !secondBarcodeRaw)) {
+            throw new Error("Los campos firstBarcodeRaw y secondBarcodeRaw son obligatorios para doble codigo");
+        }
+
+        const resolution = await resolveVerification({
+            serviceOrderId,
+            mode,
+            rawReference,
+            rawScan,
+            firstBarcodeRaw,
+            secondBarcodeRaw,
+            tagId: normalizeRequiredText(req.body.tagId, "tagId"),
+            rfidPayloadText: normalizeRequiredText(req.body.rfidPayloadText, "rfidPayloadText"),
+        });
+
+        res.json({
+            message: "Verificacion resuelta correctamente",
+            data: resolution,
+        });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "No se pudo resolver la verificacion RFID";
+        res.status(getProgrammingRecordVerificationStatusCode(message)).json({ message });
+    }
+};
+
 export const verifyProgrammingRecordHandler = async (
     req: Request<{ id: string }, unknown, VerifyProgrammingRecordBody>,
     res: Response
@@ -275,6 +490,8 @@ export const verifyProgrammingRecordHandler = async (
             rawScan: normalizeOptionalText(req.body.rawScan),
             firstBarcodeRaw: normalizeOptionalText(req.body.firstBarcodeRaw),
             secondBarcodeRaw: normalizeOptionalText(req.body.secondBarcodeRaw),
+            tagId: normalizeOptionalText(req.body.tagId),
+            rfidPayloadText: normalizeOptionalText(req.body.rfidPayloadText),
             verificationNotes: normalizeOptionalText(req.body.verificationNotes),
         });
 
@@ -284,14 +501,6 @@ export const verifyProgrammingRecordHandler = async (
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : "No se pudo verificar el programming record";
-        const statusCode = message.includes("ya fue verificado")
-            ? 409
-            : message.includes("no coincide")
-                ? 409
-                : message.includes("no encontrado")
-                    ? 404
-                    : 400;
-
-        res.status(statusCode).json({ message });
+        res.status(getProgrammingRecordVerificationStatusCode(message)).json({ message });
     }
 };

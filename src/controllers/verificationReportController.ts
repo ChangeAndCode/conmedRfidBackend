@@ -30,6 +30,17 @@ type VerificationReportPrintActionBody = {
     notes?: unknown;
 };
 
+type VerificationReportPrintActionInput = {
+    verificationReportId: string;
+    printInterruptionId?: string;
+    notes?: string;
+    actor?: { userId?: string; username?: string };
+};
+
+const publicStationActor = {
+    username: "estacion-verificacion",
+};
+
 const normalizeVerificationReportStatus = (value: unknown): VerificationReportStatus | undefined => {
     const normalized = normalizeOptionalText(value)?.toLowerCase();
 
@@ -68,6 +79,8 @@ const resolveVerificationReportStatusCode = (message: string): number => {
         || message.includes("debe marcarse como impreso")
         || message.includes("no puede marcarse")
         || message.includes("aun no tiene un intento previo")
+        || message.includes("estado valido")
+        || message.includes("debe completarse desde el dashboard del supervisor")
     ) {
         return 409;
     }
@@ -98,6 +111,36 @@ const toVerificationReportResponse = (
         _id: getDocumentId(verificationReport),
         availableActions: getVerificationReportAvailableActions(verificationReport.status),
     };
+};
+
+const buildVerificationReportPrintActionInput = (
+    verificationReportId: string,
+    body: VerificationReportPrintActionBody,
+    actor?: { userId?: string; username?: string }
+): VerificationReportPrintActionInput => {
+    const input: VerificationReportPrintActionInput = {
+        verificationReportId,
+    };
+    const interruptionId = normalizeOptionalText(body.interruptionId);
+    const notes = normalizeOptionalText(body.notes);
+
+    if (interruptionId) {
+        if (!isValidObjectId(interruptionId)) {
+            throw new Error("El interruptionId no es valido");
+        }
+
+        input.printInterruptionId = interruptionId;
+    }
+
+    if (notes) {
+        input.notes = notes;
+    }
+
+    if (actor) {
+        input.actor = actor;
+    }
+
+    return input;
 };
 
 export const listVerificationReportsHandler = async (req: Request, res: Response): Promise<void> => {
@@ -226,34 +269,7 @@ export const markVerificationReportPrintInterruptedHandler = async (
             return;
         }
 
-        const input: {
-            verificationReportId: string;
-            printInterruptionId?: string;
-            notes?: string;
-            actor?: { userId?: string; username?: string };
-        } = {
-            verificationReportId: id,
-        };
-        const interruptionId = normalizeOptionalText(req.body.interruptionId);
-        const notes = normalizeOptionalText(req.body.notes);
-        const actor = resolveActor(req);
-
-        if (interruptionId) {
-            if (!isValidObjectId(interruptionId)) {
-                res.status(400).json({ message: "El interruptionId no es valido" });
-                return;
-            }
-
-            input.printInterruptionId = interruptionId;
-        }
-
-        if (notes) {
-            input.notes = notes;
-        }
-
-        if (actor) {
-            input.actor = actor;
-        }
+        const input = buildVerificationReportPrintActionInput(id, req.body, resolveActor(req));
 
         const verificationReport = await markVerificationReportPrintInterrupted(input);
 
@@ -286,23 +302,7 @@ export const markVerificationReportPrintedHandler = async (
             return;
         }
 
-        const input: {
-            verificationReportId: string;
-            notes?: string;
-            actor?: { userId?: string; username?: string };
-        } = {
-            verificationReportId: id,
-        };
-        const notes = normalizeOptionalText(req.body.notes);
-        const actor = resolveActor(req);
-
-        if (notes) {
-            input.notes = notes;
-        }
-
-        if (actor) {
-            input.actor = actor;
-        }
+        const input = buildVerificationReportPrintActionInput(id, req.body, resolveActor(req));
 
         const verificationReport = await markVerificationReportAsPrinted(input);
 
@@ -335,23 +335,7 @@ export const reprintVerificationReportHandler = async (
             return;
         }
 
-        const input: {
-            verificationReportId: string;
-            notes?: string;
-            actor?: { userId?: string; username?: string };
-        } = {
-            verificationReportId: id,
-        };
-        const notes = normalizeOptionalText(req.body.notes);
-        const actor = resolveActor(req);
-
-        if (notes) {
-            input.notes = notes;
-        }
-
-        if (actor) {
-            input.actor = actor;
-        }
+        const input = buildVerificationReportPrintActionInput(id, req.body, resolveActor(req));
 
         const verificationReport = await reprintVerificationReport(input);
 
@@ -364,6 +348,73 @@ export const reprintVerificationReportHandler = async (
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : "No se pudo reimprimir el reporte";
+        const statusCode = isVerificationReportNotFoundError(error)
+            ? 404
+            : resolveVerificationReportStatusCode(message);
+
+        res.status(statusCode).json({ message });
+    }
+};
+
+export const publicMarkVerificationReportPrintInterruptedHandler = async (
+    req: Request<{ id: string }, unknown, VerificationReportPrintActionBody>,
+    res: Response
+): Promise<void> => {
+    try {
+        const { id } = req.params;
+
+        if (!isValidObjectId(id)) {
+            res.status(400).json({ message: "El id no es valido" });
+            return;
+        }
+
+        const input = buildVerificationReportPrintActionInput(id, req.body, publicStationActor);
+        const verificationReport = await markVerificationReportPrintInterrupted(input);
+
+        res.json({
+            message: "Reporte marcado con impresion interrumpida",
+            data: toVerificationReportResponse(verificationReport as VerificationReport & {
+                _id?: unknown;
+                toObject?: () => Record<string, unknown>;
+            }),
+        });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "No se pudo actualizar el reporte";
+        const statusCode = isVerificationReportNotFoundError(error)
+            ? 404
+            : resolveVerificationReportStatusCode(message);
+
+        res.status(statusCode).json({ message });
+    }
+};
+
+export const publicMarkVerificationReportPrintedHandler = async (
+    req: Request<{ id: string }, unknown, VerificationReportPrintActionBody>,
+    res: Response
+): Promise<void> => {
+    try {
+        const { id } = req.params;
+
+        if (!isValidObjectId(id)) {
+            res.status(400).json({ message: "El id no es valido" });
+            return;
+        }
+
+        const input = buildVerificationReportPrintActionInput(id, req.body, publicStationActor);
+        const verificationReport = await markVerificationReportAsPrinted({
+            ...input,
+            source: "public-station",
+        });
+
+        res.json({
+            message: "Reporte marcado como impreso",
+            data: toVerificationReportResponse(verificationReport as VerificationReport & {
+                _id?: unknown;
+                toObject?: () => Record<string, unknown>;
+            }),
+        });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "No se pudo actualizar el reporte";
         const statusCode = isVerificationReportNotFoundError(error)
             ? 404
             : resolveVerificationReportStatusCode(message);

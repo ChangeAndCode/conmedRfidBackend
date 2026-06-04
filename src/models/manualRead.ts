@@ -80,7 +80,7 @@ const manualReadSchema = new Schema<ManualRead>(
         status: {
             type: String,
             enum: manualReadStatuses,
-            default: "programmed",
+            default: "captured",
             required: true,
         },
     },

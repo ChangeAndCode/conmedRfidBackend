@@ -23,31 +23,31 @@ verificationReportRouter.use(requireAuth);
 
 verificationReportRouter.get(
     "/",
-    requireRoles("admin", "supervisor"),
+    requireRoles("supervisor"),
     setApiAction("verification_report_list", "Reportes de verificacion listados"),
     listVerificationReportsHandler
 );
 verificationReportRouter.get(
     "/:id",
-    requireRoles("admin", "supervisor"),
+    requireRoles("supervisor"),
     setApiAction("verification_report_get", "Reporte de verificacion consultado"),
     getVerificationReportByIdHandler
 );
 verificationReportRouter.post(
     "/:id/print-interrupted",
-    requireRoles("admin", "supervisor"),
+    requireRoles("supervisor"),
     setApiAction("verification_report_print_interrupted"),
     markVerificationReportPrintInterruptedHandler
 );
 verificationReportRouter.post(
     "/:id/print-completed",
-    requireRoles("admin", "supervisor"),
+    requireRoles("supervisor"),
     setApiAction("verification_report_print_completed"),
     markVerificationReportPrintedHandler
 );
 verificationReportRouter.post(
     "/:id/reprint",
-    requireRoles("admin"),
+    requireRoles("supervisor"),
     setApiAction("verification_report_reprint"),
     reprintVerificationReportHandler
 );

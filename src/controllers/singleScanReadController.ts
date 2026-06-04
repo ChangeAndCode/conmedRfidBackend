@@ -90,7 +90,7 @@ export const createSingleScanRead = async (
             partNumber,
             rawScan: resolvedScan.rawScan,
             inputMethod: "single_scan",
-            status: "programmed",
+            status: "captured",
         };
 
         const requestRfidProgram = normalizeOptionalText(req.body.rfidProgram)?.toUpperCase();
@@ -132,9 +132,15 @@ export const createSingleScanRead = async (
         }
 
         const singleScanRead = await SingleScanReadModel.create(payload);
+        let programmingRecordId = "";
+        let programmingRecordStatus = singleScanRead.status;
 
         try {
-            await createProgrammingRecordFromSingleScanRead(singleScanRead as typeof singleScanRead & { _id?: unknown });
+            const programmingRecord = await createProgrammingRecordFromSingleScanRead(
+                singleScanRead as typeof singleScanRead & { _id?: unknown }
+            );
+            programmingRecordId = getDocumentId(programmingRecord as typeof programmingRecord & { _id?: unknown });
+            programmingRecordStatus = programmingRecord.status;
         } catch (error) {
             await SingleScanReadModel.findByIdAndDelete(
                 getDocumentId(singleScanRead as typeof singleScanRead & { _id?: unknown })
@@ -145,6 +151,11 @@ export const createSingleScanRead = async (
         res.status(201).json({
             message: "Lectura single scan registrada",
             data: singleScanRead,
+            programmingRecord: {
+                id: programmingRecordId,
+                mode: "single_scan",
+                status: programmingRecordStatus,
+            },
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : "No se pudo registrar la lectura single scan";

@@ -1,8 +1,11 @@
 import { DoubleScanRead } from "../models/doubleScanRead";
 import { ManualRead, ManualReadModel } from "../models/manualRead";
 import {
+    ProgrammingConnectionMethod,
+    ProgrammingExecutionData,
     ProgrammingRecord,
     ProgrammingVerificationData,
+    ProgrammingVerificationRfidPayload,
     ProgrammingRecordMode,
     ProgrammingRecordModel,
     ProgrammingRecordSourceType,
@@ -12,12 +15,16 @@ import { SingleScanRead, SingleScanReadModel } from "../models/singleScanRead";
 import { DoubleScanReadModel } from "../models/doubleScanRead";
 import { parseDoubleScanVerificationReading, parseSingleScanReading } from "./gs1Parser";
 import { VerificationReportStatus } from "../models/verificationReport";
+import { buildLegacyTagPayload, decodeLegacyTagPayload, DecodedLegacyTagPayload } from "./rfid/legacyTagCodec";
+import { BuildLegacyTagPayloadResponseData, buildLegacyTagPayloadResponseData } from "./rfid/legacyTagResponse";
+import { ResolvedLegacyRfidPartMapping } from "./rfid/legacyTagMapping";
 import {
     closeServiceOrderIfVerificationCompleted,
     getDocumentId,
     getServiceOrderById,
     getServiceOrderProgress,
 } from "./serviceOrderService";
+import { resolveLegacyRfidPartMappingByBackendPartNumber } from "./partConfigService";
 import {
     getVerificationReportAvailableActions,
     getVerificationReportByServiceOrderId,
@@ -39,6 +46,8 @@ type ProgrammingRecordQuery = {
 type ResolveProgrammingRecordInput = {
     mode: ProgrammingRecordMode;
     strictMode: boolean;
+    serviceOrderId?: string | undefined;
+    allowedStatuses?: ProgrammingRecordStatus[] | undefined;
     rawReference?: string | undefined;
     rawScan?: string | undefined;
     firstBarcodeRaw?: string | undefined;
@@ -74,7 +83,50 @@ type VerifyProgrammingRecordInput = {
     rawScan?: string | undefined;
     firstBarcodeRaw?: string | undefined;
     secondBarcodeRaw?: string | undefined;
+    tagId?: string | undefined;
+    rfidPayloadText?: string | undefined;
     verificationNotes?: string | undefined;
+};
+
+type ResolveVerificationInput = {
+    serviceOrderId: string;
+    mode: ProgrammingRecordMode;
+    rawReference?: string | undefined;
+    rawScan?: string | undefined;
+    firstBarcodeRaw?: string | undefined;
+    secondBarcodeRaw?: string | undefined;
+    tagId: string;
+    rfidPayloadText: string;
+};
+
+type BuildProgrammingRecordRfidPayloadInput = {
+    programmingRecordId: string;
+    tagId: string;
+    includeDetails: boolean;
+};
+
+type CompleteProgrammingRecordInput = {
+    programmingRecordId: string;
+    connectionMethod: ProgrammingConnectionMethod;
+    deviceId?: string | undefined;
+    deviceName?: string | undefined;
+    serialPortPath?: string | undefined;
+    tagId: string;
+    payloadHex?: string | undefined;
+    authCode?: string | undefined;
+    programmingNotes?: string | undefined;
+    programmedBy?: string | undefined;
+};
+
+export type BuildProgrammingRecordRfidPayloadResult = BuildLegacyTagPayloadResponseData & {
+    programmingRecordId: string;
+    programmingRecordStatus: ProgrammingRecordStatus;
+    serviceOrderFolio?: string | undefined;
+};
+
+export type CompleteProgrammingRecordResult = {
+    payload: BuildProgrammingRecordRfidPayloadResult;
+    programmingRecord: ProgrammingRecord;
 };
 
 type VerifiedProgrammingRecordServiceOrderSummary = {
@@ -86,8 +138,10 @@ type VerifiedProgrammingRecordServiceOrderSummary = {
     rfidProgram?: string;
     quantity: number;
     status: string;
+    reservedCount: number;
     programmedCount: number;
     verifiedCount: number;
+    remainingToCapture: number;
     remainingToProgram: number;
     remainingToVerify: number;
 };
@@ -106,13 +160,50 @@ export type VerifyProgrammingRecordResult = {
     verificationReport: VerifiedProgrammingRecordVerificationReportState;
 };
 
+export type ResolveVerificationResult = {
+    programmingRecord: ProgrammingRecord;
+    serviceOrder: VerifiedProgrammingRecordServiceOrderSummary;
+    rfidPayload: ProgrammingVerificationRfidPayload;
+};
+
+export const tagAlreadyVerifiedMessage = "Esta etiqueta ya fue revisada.";
+
+type VerificationEvidenceInput = Pick<
+    VerifyProgrammingRecordInput,
+    "rawReference" | "rawScan" | "firstBarcodeRaw" | "secondBarcodeRaw"
+>;
+
 const listQueryValue = (value: string | undefined): string | undefined => {
     const normalized = value?.trim();
     return normalized && normalized.length > 0 ? normalized : undefined;
 };
 
+const normalizeVerificationTagId = (value: string, fieldName = "tagId"): string => {
+    const normalized = value.replace(/[\s:-]+/g, "").trim().toUpperCase();
+
+    if (!normalized) {
+        throw new Error(`El campo ${fieldName} es obligatorio`);
+    }
+
+    if (normalized.length % 2 !== 0 || !/^[0-9A-F]+$/.test(normalized)) {
+        throw new Error(`El campo ${fieldName} debe ser una cadena hexadecimal valida`);
+    }
+
+    return normalized;
+};
+
+const normalizeVerificationPayloadText = (value: string, fieldName = "rfidPayloadText"): string => {
+    const normalized = listQueryValue(value)?.toUpperCase();
+
+    if (!normalized) {
+        throw new Error(`El campo ${fieldName} es obligatorio`);
+    }
+
+    return normalized;
+};
+
 const getVerificationEvidenceCodes = (
-    input: VerifyProgrammingRecordInput
+    input: VerificationEvidenceInput
 ): string[] => {
     return [
         input.rawReference,
@@ -122,6 +213,20 @@ const getVerificationEvidenceCodes = (
     ]
         .map((value) => listQueryValue(value)?.toUpperCase())
         .filter((value): value is string => Boolean(value));
+};
+
+const normalizeComparableLot = (value: string, fieldName: string): string => {
+    const normalized = listQueryValue(value);
+
+    if (!normalized) {
+        throw new Error(`El campo ${fieldName} es obligatorio`);
+    }
+
+    if (/^\d+$/.test(normalized)) {
+        return BigInt(normalized).toString();
+    }
+
+    return normalized.toUpperCase();
 };
 
 const verificationSearchStatuses: ProgrammingRecordStatus[] = ["programmed", "verified"];
@@ -158,10 +263,13 @@ const sortVerificationCandidates = (records: ProgrammingRecord[]): ProgrammingRe
     });
 };
 
-const queryVerificationCandidates = async (query: Record<string, unknown>): Promise<ProgrammingRecord[]> => {
+const queryVerificationCandidates = async (
+    query: Record<string, unknown>,
+    statuses: ProgrammingRecordStatus[] = verificationSearchStatuses
+): Promise<ProgrammingRecord[]> => {
     const records = await ProgrammingRecordModel.find({
         ...query,
-        status: { $in: verificationSearchStatuses },
+        status: { $in: statuses },
     }).sort({ createdAt: -1 }).limit(25);
 
     return sortVerificationCandidates(records);
@@ -232,8 +340,36 @@ export const getProgrammingRecordById = async (id: string): Promise<ProgrammingR
     return ProgrammingRecordModel.findById(id);
 };
 
+export const buildRfidPayloadForProgrammingRecord = async (
+    input: BuildProgrammingRecordRfidPayloadInput
+): Promise<BuildProgrammingRecordRfidPayloadResult> => {
+    const programmingRecord = await ProgrammingRecordModel.findById(input.programmingRecordId);
+
+    if (!programmingRecord) {
+        throw new Error("Programming record no encontrado");
+    }
+
+    const { payload } = await buildProgrammingRecordPayloadCore(
+        programmingRecord as ProgrammingRecord & { _id?: unknown },
+        input.tagId,
+        input.includeDetails
+    );
+
+    return {
+        ...payload,
+        programmingRecordId: getDocumentId(programmingRecord as ProgrammingRecord & { _id?: unknown }),
+        programmingRecordStatus: programmingRecord.status,
+        serviceOrderFolio: programmingRecord.serviceOrderFolio,
+    };
+};
+
 const buildVerificationData = (
-    normalizedInput: ResolvedProgrammingRecordInput
+    normalizedInput: ResolvedProgrammingRecordInput,
+    options: {
+        tagId?: string | undefined;
+        rfidPayloadText?: string | undefined;
+        rfidPayload?: ProgrammingVerificationRfidPayload | undefined;
+    } = {}
 ): ProgrammingVerificationData | undefined => {
     const payload: ProgrammingVerificationData = {};
 
@@ -253,7 +389,229 @@ const buildVerificationData = (
         payload.secondBarcodeRaw = normalizedInput.secondBarcodeRaw;
     }
 
+    if (options.tagId) {
+        payload.tagId = options.tagId;
+    }
+
+    if (options.rfidPayloadText) {
+        payload.rfidPayloadText = options.rfidPayloadText;
+    }
+
+    if (options.rfidPayload) {
+        payload.rfidPayload = options.rfidPayload;
+    }
+
     return Object.keys(payload).length > 0 ? payload : undefined;
+};
+
+const assertVerificationEvidenceAllowed = async (
+    serviceOrderId: string | undefined,
+    input: VerificationEvidenceInput
+): Promise<void> => {
+    if (!serviceOrderId) {
+        return;
+    }
+
+    const serviceOrder = await getServiceOrderById(serviceOrderId);
+
+    if (!serviceOrder) {
+        throw new Error("La orden de servicio asociada no existe");
+    }
+
+    const allowedValidationCodes = serviceOrder.allowedValidationCodes ?? [];
+
+    if (allowedValidationCodes.length === 0) {
+        return;
+    }
+
+    const evidenceCodes = getVerificationEvidenceCodes(input);
+    const hasAllowedEvidenceCode = evidenceCodes.some((code) =>
+        allowedValidationCodes.includes(code)
+    );
+
+    if (!hasAllowedEvidenceCode) {
+        throw new Error("El codigo escaneado no pertenece a los codigos permitidos para esta orden de servicio");
+    }
+};
+
+const getProgrammedTagIdForProgrammingRecord = (record: ProgrammingRecord): string => {
+    const programmedTagId = listQueryValue(record.programmingData?.rfid.tagId);
+
+    if (!programmedTagId) {
+        throw new Error("El programming record no tiene un tagId programado para validar la verificacion RFID");
+    }
+
+    return normalizeVerificationTagId(programmedTagId, "tagId programado");
+};
+
+const buildVerificationRfidPayload = async (
+    record: ProgrammingRecord,
+    input: Pick<ResolveVerificationInput, "tagId" | "rfidPayloadText">
+): Promise<ProgrammingVerificationRfidPayload> => {
+    const normalizedTagId = normalizeVerificationTagId(input.tagId);
+    const normalizedPayloadText = normalizeVerificationPayloadText(input.rfidPayloadText);
+    const programmedTagId = getProgrammedTagIdForProgrammingRecord(record);
+
+    if (programmedTagId !== normalizedTagId) {
+        throw new Error("La etiqueta RFID leida no coincide con el tag programado para este registro");
+    }
+
+    const decodedPayload = decodeLegacyTagPayload(normalizedPayloadText);
+    const expectedLegacyPartMapping = await resolveLegacyRfidPartMappingByBackendPartNumber(record.partNumber);
+    const rawPartNumber = decodedPayload.partNumber.trim().toUpperCase();
+
+    if (rawPartNumber !== expectedLegacyPartMapping.legacyRfidPartNumber.toUpperCase()) {
+        throw new Error("La etiqueta RFID leida no coincide con el numero de parte esperado");
+    }
+
+    if (record.mode !== "manual") {
+        const expectedLot = normalizeComparableLot(
+            getProgrammingRecordFieldValue(record.lot, "lot"),
+            "lot del programming record"
+        );
+        const readLot = normalizeComparableLot(decodedPayload.lot, "lot RFID");
+
+        if (expectedLot !== readLot) {
+            throw new Error("La etiqueta RFID leida no coincide con el lote esperado");
+        }
+
+        const expectedManufactureDate = getProgrammingRecordFieldValue(record.manufactureDate, "manufactureDate");
+
+        if (expectedManufactureDate !== decodedPayload.dateCode) {
+            throw new Error("La etiqueta RFID leida no coincide con la fecha de manufactura esperada");
+        }
+    }
+
+    return {
+        partNumber: record.partNumber,
+        rawPartNumber,
+        lot: decodedPayload.lot,
+        manufactureDate: decodedPayload.dateCode,
+        tagId: normalizedTagId,
+    };
+};
+
+const findVerifiedProgrammingRecordByTagId = async (
+    tagId: string,
+    excludeProgrammingRecordId?: string
+): Promise<ProgrammingRecord | null> => {
+    const query: Record<string, unknown> = {
+        status: "verified",
+        "programmingData.rfid.tagId": tagId,
+    };
+
+    if (excludeProgrammingRecordId) {
+        query._id = { $ne: excludeProgrammingRecordId };
+    }
+
+    return ProgrammingRecordModel.findOne(query).sort({ verifiedAt: -1, createdAt: -1 });
+};
+
+const assertTagIdNotAlreadyVerified = async (
+    tagId: string,
+    excludeProgrammingRecordId?: string
+): Promise<void> => {
+    const existingRecord = await findVerifiedProgrammingRecordByTagId(tagId, excludeProgrammingRecordId);
+
+    if (existingRecord) {
+        throw new Error(tagAlreadyVerifiedMessage);
+    }
+};
+
+const getProgrammingRecordFieldValue = (
+    value: string | undefined,
+    fieldName: "lot" | "manufactureDate"
+): string => {
+    const normalized = listQueryValue(value);
+
+    if (!normalized) {
+        throw new Error(`El programming record no tiene ${fieldName} suficiente para construir el payload RFID`);
+    }
+
+    return normalized;
+};
+
+const normalizeProgrammingConnectionData = (
+    input: Pick<CompleteProgrammingRecordInput, "connectionMethod" | "deviceId" | "deviceName" | "serialPortPath">
+): ProgrammingExecutionData["connection"] => {
+    const deviceId = listQueryValue(input.deviceId);
+    const deviceName = listQueryValue(input.deviceName);
+
+    if (input.connectionMethod === "serial_port") {
+        const serialPortPath = listQueryValue(input.serialPortPath);
+
+        if (!serialPortPath) {
+            throw new Error("El campo serialPortPath es obligatorio cuando connectionMethod es serial_port");
+        }
+
+        const connectionData: ProgrammingExecutionData["connection"] = {
+            method: "serial_port",
+            serialPortPath,
+        };
+
+        if (deviceId) {
+            connectionData.deviceId = deviceId;
+        }
+
+        if (deviceName) {
+            connectionData.deviceName = deviceName;
+        }
+
+        return connectionData;
+    }
+
+    const connectionData: ProgrammingExecutionData["connection"] = {
+        method: "android_usb_nfc",
+    };
+
+    if (deviceId) {
+        connectionData.deviceId = deviceId;
+    }
+
+    if (deviceName) {
+        connectionData.deviceName = deviceName;
+    }
+
+    return connectionData;
+};
+
+const assertProgrammingRecordCanBuildRfidPayload = (record: ProgrammingRecord): void => {
+    if (record.status === "verified") {
+        throw new Error("El programming record ya fue verificado y no puede volver a programarse");
+    }
+
+    if (record.status === "programmed") {
+        throw new Error("El programming record ya fue marcado como programado");
+    }
+};
+
+const buildProgrammingRecordPayloadCore = async (
+    record: ProgrammingRecord & { _id?: unknown },
+    tagId: string,
+    includeDetails: boolean
+): Promise<{
+    legacyPartMapping: ResolvedLegacyRfidPartMapping;
+    payload: BuildLegacyTagPayloadResponseData;
+}> => {
+    assertProgrammingRecordCanBuildRfidPayload(record);
+
+    const legacyPartMapping = await resolveLegacyRfidPartMappingByBackendPartNumber(record.partNumber);
+    const builtPayload = buildLegacyTagPayload({
+        partNumber: legacyPartMapping.legacyRfidPartNumber,
+        lot: getProgrammingRecordFieldValue(record.lot, "lot"),
+        manufactureDate: getProgrammingRecordFieldValue(record.manufactureDate, "manufactureDate"),
+        tagId,
+    });
+
+    return {
+        legacyPartMapping,
+        payload: buildLegacyTagPayloadResponseData(
+            builtPayload,
+            record.partNumber,
+            legacyPartMapping,
+            includeDetails
+        ),
+    };
 };
 
 const updateSourceReadStatus = async (
@@ -312,8 +670,10 @@ const buildVerifiedProgrammingRecordServiceOrderSummary = async (
         readingMode: serviceOrder.readingMode,
         quantity: serviceOrder.quantity,
         status: serviceOrder.status,
+        reservedCount: progress.reservedCount,
         programmedCount: progress.programmedCount,
         verifiedCount: progress.verifiedCount,
+        remainingToCapture: progress.remainingToCapture,
         remainingToProgram: progress.remainingToProgram,
         remainingToVerify: progress.remainingToVerify,
     };
@@ -348,9 +708,88 @@ const buildVerifiedProgrammingRecordServiceOrderSummary = async (
     };
 };
 
+export const completeProgrammingRecord = async (
+    input: CompleteProgrammingRecordInput
+): Promise<CompleteProgrammingRecordResult> => {
+    const programmingRecord = await ProgrammingRecordModel.findById(input.programmingRecordId);
+
+    if (!programmingRecord) {
+        throw new Error("Programming record no encontrado");
+    }
+
+    const { legacyPartMapping, payload } = await buildProgrammingRecordPayloadCore(
+        programmingRecord as ProgrammingRecord & { _id?: unknown },
+        input.tagId,
+        false
+    );
+
+    const providedPayloadHex = listQueryValue(input.payloadHex)?.toUpperCase();
+
+    if (providedPayloadHex && providedPayloadHex !== payload.payloadHex) {
+        throw new Error("El payloadHex reportado no coincide con el payload RFID legado esperado");
+    }
+
+    const providedAuthCode = listQueryValue(input.authCode)?.toUpperCase();
+
+    if (providedAuthCode && providedAuthCode !== payload.authCode) {
+        throw new Error("El authCode reportado no coincide con el AuthCode esperado");
+    }
+
+    const programmingData: ProgrammingExecutionData = {
+        connection: normalizeProgrammingConnectionData(input),
+        rfid: {
+            authCode: payload.authCode,
+            backendPartNumber: payload.backendPartNumber,
+            legacyRfidPartNumber: legacyPartMapping.legacyRfidPartNumber,
+            payloadHex: payload.payloadHex,
+            tagByteLength: payload.tagByteLength,
+            tagId: payload.tagId,
+        },
+    };
+
+    const programmingNotes = listQueryValue(input.programmingNotes);
+
+    if (programmingNotes) {
+        programmingData.notes = programmingNotes;
+    }
+
+    const programmedBy = listQueryValue(input.programmedBy);
+
+    if (programmedBy) {
+        programmingData.programmedBy = programmedBy;
+    }
+
+    programmingRecord.status = "programmed";
+    programmingRecord.programmedAt = new Date();
+    programmingRecord.programmingData = programmingData;
+    await programmingRecord.save();
+
+    try {
+        await updateSourceReadStatus(programmingRecord, "programmed");
+    } catch (error) {
+        programmingRecord.status = "captured";
+        delete programmingRecord.programmedAt;
+        delete programmingRecord.programmingData;
+        await programmingRecord.save();
+        throw error;
+    }
+
+    return {
+        payload: {
+            ...payload,
+            programmingRecordId: getDocumentId(programmingRecord as ProgrammingRecord & { _id?: unknown }),
+            programmingRecordStatus: programmingRecord.status,
+            serviceOrderFolio: programmingRecord.serviceOrderFolio,
+        },
+        programmingRecord,
+    };
+};
+
 export const resolveProgrammingRecord = async (
     input: ResolveProgrammingRecordInput
 ): Promise<ResolveProgrammingRecordResult> => {
+    const statuses = input.allowedStatuses ?? verificationSearchStatuses;
+
     if (input.mode === "manual") {
         const rawReference = listQueryValue(input.rawReference);
 
@@ -362,12 +801,13 @@ export const resolveProgrammingRecord = async (
 
         const candidates = await queryVerificationCandidates({
             mode: "manual",
+            ...(input.serviceOrderId ? { serviceOrderId: input.serviceOrderId } : {}),
             $or: [
                 { "rawSourceData.rawReference": rawReference },
                 { serviceOrderFolio: upperReference },
                 { partNumber: upperReference },
             ],
-        });
+        }, statuses);
 
         return buildResolveProgrammingRecordResult(candidates, "manual_raw_reference", {
             mode: "manual",
@@ -385,8 +825,9 @@ export const resolveProgrammingRecord = async (
         const resolvedScan = parseSingleScanReading(rawScan);
         const exactCandidates = await queryVerificationCandidates({
             mode: "single_scan",
+            ...(input.serviceOrderId ? { serviceOrderId: input.serviceOrderId } : {}),
             "rawSourceData.rawScan": resolvedScan.rawScan,
-        });
+        }, statuses);
 
         if (exactCandidates.length > 0) {
             return buildResolveProgrammingRecordResult(exactCandidates, "single_scan_raw", {
@@ -408,7 +849,11 @@ export const resolveProgrammingRecord = async (
             gs1FieldQuery.mode = "single_scan";
         }
 
-        const candidates = await queryVerificationCandidates(gs1FieldQuery);
+        if (input.serviceOrderId) {
+            gs1FieldQuery.serviceOrderId = input.serviceOrderId;
+        }
+
+        const candidates = await queryVerificationCandidates(gs1FieldQuery, statuses);
 
         return buildResolveProgrammingRecordResult(candidates, "gs1_fields", {
             mode: "single_scan",
@@ -429,9 +874,10 @@ export const resolveProgrammingRecord = async (
     const resolvedReading = parseDoubleScanVerificationReading(firstBarcodeRaw, secondBarcodeRaw);
     const exactCandidates = await queryVerificationCandidates({
         mode: "double_scan",
+        ...(input.serviceOrderId ? { serviceOrderId: input.serviceOrderId } : {}),
         "rawSourceData.firstBarcodeRaw": resolvedReading.firstBarcodeRaw,
         "rawSourceData.secondBarcodeRaw": resolvedReading.secondBarcodeRaw,
-    });
+    }, statuses);
 
     if (exactCandidates.length > 0) {
         return buildResolveProgrammingRecordResult(exactCandidates, "double_scan_raw", {
@@ -454,7 +900,11 @@ export const resolveProgrammingRecord = async (
         gs1FieldQuery.mode = "double_scan";
     }
 
-    const candidates = await queryVerificationCandidates(gs1FieldQuery);
+    if (input.serviceOrderId) {
+        gs1FieldQuery.serviceOrderId = input.serviceOrderId;
+    }
+
+    const candidates = await queryVerificationCandidates(gs1FieldQuery, statuses);
 
     return buildResolveProgrammingRecordResult(candidates, "gs1_fields", {
         mode: "double_scan",
@@ -466,6 +916,87 @@ export const resolveProgrammingRecord = async (
     });
 };
 
+const resolveVerificationContext = async (
+    input: ResolveVerificationInput,
+    options: {
+        excludeProgrammingRecordId?: string | undefined;
+    } = {}
+): Promise<{
+    programmingRecord: ProgrammingRecord;
+    resolution: ResolveProgrammingRecordResult;
+    serviceOrder: VerifiedProgrammingRecordServiceOrderSummary;
+    rfidPayload: ProgrammingVerificationRfidPayload;
+    normalizedTagId: string;
+    normalizedRfidPayloadText: string;
+}> => {
+    const serviceOrder = await getServiceOrderById(input.serviceOrderId);
+
+    if (!serviceOrder) {
+        throw new Error("La orden de servicio seleccionada no existe");
+    }
+
+    if (serviceOrder.readingMode !== input.mode) {
+        throw new Error("La orden de servicio seleccionada no pertenece al flujo indicado");
+    }
+
+    const normalizedTagId = normalizeVerificationTagId(input.tagId);
+    const normalizedRfidPayloadText = normalizeVerificationPayloadText(input.rfidPayloadText);
+    await assertTagIdNotAlreadyVerified(normalizedTagId, options.excludeProgrammingRecordId);
+    await assertVerificationEvidenceAllowed(input.serviceOrderId, input);
+
+    const resolution = await resolveProgrammingRecord({
+        mode: input.mode,
+        strictMode: true,
+        serviceOrderId: input.serviceOrderId,
+        allowedStatuses: ["programmed"],
+        rawReference: input.rawReference,
+        rawScan: input.rawScan,
+        firstBarcodeRaw: input.firstBarcodeRaw,
+        secondBarcodeRaw: input.secondBarcodeRaw,
+    });
+
+    if (resolution.candidateCount === 0) {
+        throw new Error("No se encontro una programacion coincidente dentro de la orden de servicio");
+    }
+
+    if (resolution.candidateCount > 1 || !resolution.autoSelectedProgrammingRecordId) {
+        throw new Error("Se encontraron varias programaciones coincidentes dentro de la orden de servicio");
+    }
+
+    const programmingRecord = resolution.candidates[0];
+
+    if (!programmingRecord) {
+        throw new Error("No se encontro una programacion coincidente dentro de la orden de servicio");
+    }
+
+    const rfidPayload = await buildVerificationRfidPayload(programmingRecord, {
+        tagId: normalizedTagId,
+        rfidPayloadText: normalizedRfidPayloadText,
+    });
+    const serviceOrderState = await buildVerifiedProgrammingRecordServiceOrderSummary(input.serviceOrderId);
+
+    return {
+        programmingRecord,
+        resolution,
+        serviceOrder: serviceOrderState.serviceOrder,
+        rfidPayload,
+        normalizedTagId,
+        normalizedRfidPayloadText,
+    };
+};
+
+export const resolveVerification = async (
+    input: ResolveVerificationInput
+): Promise<ResolveVerificationResult> => {
+    const resolvedVerification = await resolveVerificationContext(input);
+
+    return {
+        programmingRecord: resolvedVerification.programmingRecord,
+        serviceOrder: resolvedVerification.serviceOrder,
+        rfidPayload: resolvedVerification.rfidPayload,
+    };
+};
+
 export const verifyProgrammingRecord = async (
     input: VerifyProgrammingRecordInput
 ): Promise<VerifyProgrammingRecordResult> => {
@@ -475,49 +1006,82 @@ export const verifyProgrammingRecord = async (
         throw new Error("Programming record no encontrado");
     }
 
+    if (programmingRecord.status === "captured") {
+        throw new Error("El programming record aun no ha sido programado");
+    }
+
     if (programmingRecord.status === "verified") {
         throw new Error("El programming record ya fue verificado");
     }
 
-    const resolution = await resolveProgrammingRecord({
-        mode: programmingRecord.mode,
-        strictMode: true,
-        rawReference: input.rawReference,
-        rawScan: input.rawScan,
-        firstBarcodeRaw: input.firstBarcodeRaw,
-        secondBarcodeRaw: input.secondBarcodeRaw,
-    });
     const programmingRecordId = getDocumentId(programmingRecord as ProgrammingRecord & { _id?: unknown });
-    const matchingCandidate = resolution.candidates.find((candidate) => {
-        return getDocumentId(candidate as ProgrammingRecord & { _id?: unknown }) === programmingRecordId;
+    const hasTagId = Boolean(listQueryValue(input.tagId));
+    const hasRfidPayloadText = Boolean(listQueryValue(input.rfidPayloadText));
+
+    if (hasTagId !== hasRfidPayloadText) {
+        throw new Error("Los campos tagId y rfidPayloadText deben enviarse juntos");
+    }
+
+    let resolution: ResolveProgrammingRecordResult;
+    let verificationRfidPayload: ProgrammingVerificationRfidPayload | undefined;
+    let normalizedTagId: string | undefined;
+    let normalizedRfidPayloadText: string | undefined;
+
+    if (hasTagId && hasRfidPayloadText) {
+        if (!programmingRecord.serviceOrderId) {
+            throw new Error("El programming record no esta asociado a una orden de servicio");
+        }
+
+        const resolvedVerification = await resolveVerificationContext({
+            serviceOrderId: programmingRecord.serviceOrderId,
+            mode: programmingRecord.mode,
+            rawReference: input.rawReference,
+            rawScan: input.rawScan,
+            firstBarcodeRaw: input.firstBarcodeRaw,
+            secondBarcodeRaw: input.secondBarcodeRaw,
+            tagId: input.tagId as string,
+            rfidPayloadText: input.rfidPayloadText as string,
+        }, {
+            excludeProgrammingRecordId: programmingRecordId,
+        });
+
+        const resolvedProgrammingRecordId = getDocumentId(
+            resolvedVerification.programmingRecord as ProgrammingRecord & { _id?: unknown }
+        );
+
+        if (resolvedProgrammingRecordId !== programmingRecordId) {
+            throw new Error("La evidencia de verificacion no coincide con el programming record seleccionado");
+        }
+
+        resolution = resolvedVerification.resolution;
+        verificationRfidPayload = resolvedVerification.rfidPayload;
+        normalizedTagId = resolvedVerification.normalizedTagId;
+        normalizedRfidPayloadText = resolvedVerification.normalizedRfidPayloadText;
+    } else {
+        resolution = await resolveProgrammingRecord({
+            mode: programmingRecord.mode,
+            strictMode: true,
+            rawReference: input.rawReference,
+            rawScan: input.rawScan,
+            firstBarcodeRaw: input.firstBarcodeRaw,
+            secondBarcodeRaw: input.secondBarcodeRaw,
+        });
+        const matchingCandidate = resolution.candidates.find((candidate) => {
+            return getDocumentId(candidate as ProgrammingRecord & { _id?: unknown }) === programmingRecordId;
+        });
+
+        if (!matchingCandidate) {
+            throw new Error("La evidencia de verificacion no coincide con el programming record seleccionado");
+        }
+
+        await assertVerificationEvidenceAllowed(programmingRecord.serviceOrderId, input);
+    }
+
+    const verificationData = buildVerificationData(resolution.normalizedInput, {
+        tagId: normalizedTagId,
+        rfidPayloadText: normalizedRfidPayloadText,
+        rfidPayload: verificationRfidPayload,
     });
-
-    if (!matchingCandidate) {
-        throw new Error("La evidencia de verificacion no coincide con el programming record seleccionado");
-    }
-
-    if (programmingRecord.serviceOrderId) {
-        const serviceOrder = await getServiceOrderById(programmingRecord.serviceOrderId);
-
-        if (!serviceOrder) {
-            throw new Error("La orden de servicio asociada no existe");
-        }
-
-        const allowedValidationCodes = serviceOrder.allowedValidationCodes ?? [];
-
-        if (allowedValidationCodes.length > 0) {
-            const evidenceCodes = getVerificationEvidenceCodes(input);
-            const hasAllowedEvidenceCode = evidenceCodes.some((code) =>
-                allowedValidationCodes.includes(code)
-            );
-
-            if (!hasAllowedEvidenceCode) {
-                throw new Error("El código escaneado no pertenece a los códigos permitidos para esta orden de servicio");
-            }
-        }
-    }
-
-    const verificationData = buildVerificationData(resolution.normalizedInput);
 
     programmingRecord.status = "verified";
     programmingRecord.verifiedAt = new Date();

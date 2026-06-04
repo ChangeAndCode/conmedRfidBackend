@@ -1,6 +1,10 @@
 import { defaultPartConfigs } from "../config/defaultPartConfigs";
 import { logger } from "../config/logger";
 import { PartConfig, PartConfigModel, ReadingMode } from "../models/partConfig";
+import {
+    resolveLegacyRfidPartMapping,
+    ResolvedLegacyRfidPartMapping,
+} from "./rfid/legacyTagMapping";
 
 type PartConfigQuery = {
     partNumber?: string;
@@ -98,6 +102,36 @@ export const validateDoubleScanPartConfig = (partConfig: PartConfig): DoubleScan
     }
 
     return partConfig as DoubleScanResolvedConfig;
+};
+
+const getDocumentId = (value: { _id?: unknown }): string | undefined => {
+    if (typeof value._id === "string") {
+        return value._id;
+    }
+
+    if (typeof value._id === "object" && value._id !== null && "toString" in value._id) {
+        return value._id.toString();
+    }
+
+    return undefined;
+};
+
+export const resolveLegacyRfidPartMappingByBackendPartNumber = async (
+    backendPartNumber: string
+): Promise<ResolvedLegacyRfidPartMapping> => {
+    const partConfig = await getPartConfigByPartNumber(backendPartNumber, undefined, true);
+
+    if (!partConfig) {
+        throw new Error("El numero de parte no tiene una configuracion activa para construir payload RFID legado");
+    }
+
+    return resolveLegacyRfidPartMapping({
+        backendPartNumber: partConfig.partNumber,
+        legacyRfidPartNumber: partConfig.legacyRfidPartNumber,
+        partConfigId: getDocumentId(partConfig as typeof partConfig & { _id?: unknown }),
+        readingMode: partConfig.readingMode,
+        usesLegacyRfidPayload: partConfig.usesLegacyRfidPayload,
+    });
 };
 
 export const seedDefaultPartConfigs = async (): Promise<void> => {

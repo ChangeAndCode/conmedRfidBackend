@@ -190,7 +190,7 @@ export const createDoubleScanRead = async (
             manufactureDate: parsedReading.manufactureDate,
             rulesApplied: parsedReading.rulesApplied,
             inputMethod: "double_scan",
-            status: "programmed",
+            status: "captured",
         };
 
         payload.serviceOrder = serviceOrder.folio;
@@ -208,9 +208,15 @@ export const createDoubleScanRead = async (
         }
 
         const doubleScanRead = await DoubleScanReadModel.create(payload);
+        let programmingRecordId = "";
+        let programmingRecordStatus = doubleScanRead.status;
 
         try {
-            await createProgrammingRecordFromDoubleScanRead(doubleScanRead as typeof doubleScanRead & { _id?: unknown });
+            const programmingRecord = await createProgrammingRecordFromDoubleScanRead(
+                doubleScanRead as typeof doubleScanRead & { _id?: unknown }
+            );
+            programmingRecordId = getDocumentId(programmingRecord as typeof programmingRecord & { _id?: unknown });
+            programmingRecordStatus = programmingRecord.status;
         } catch (error) {
             await DoubleScanReadModel.findByIdAndDelete(
                 getDocumentId(doubleScanRead as typeof doubleScanRead & { _id?: unknown })
@@ -221,6 +227,11 @@ export const createDoubleScanRead = async (
         res.status(201).json({
             message: "Lectura doble registrada",
             data: doubleScanRead,
+            programmingRecord: {
+                id: programmingRecordId,
+                mode: "double_scan",
+                status: programmingRecordStatus,
+            },
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : "No se pudo registrar la lectura doble";
