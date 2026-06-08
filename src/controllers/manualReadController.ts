@@ -18,7 +18,6 @@ type CreateManualReadBody = {
     gtin?: unknown;
     lot?: unknown;
     manufactureDate?: unknown;
-    filterLabel?: unknown;
     rawReference?: unknown;
     notes?: unknown;
     createdBy?: unknown;
@@ -48,13 +47,11 @@ export const createManualRead = async (
         const manufactureDate = normalizeOptionalText(req.body.manufactureDate);
         const requestRfidProgram = normalizeOptionalText(req.body.rfidProgram)?.toUpperCase();
         const requestGtin = normalizeOptionalText(req.body.gtin);
-        const requestFilterLabel = normalizeOptionalText(req.body.filterLabel);
         const rawReference = normalizeOptionalText(req.body.rawReference);
         const notes = normalizeOptionalText(req.body.notes);
         const createdBy = normalizeOptionalText(req.body.createdBy);
         const rfidProgram = partConfig.rfidProgram ?? requestRfidProgram;
         const gtin = partConfig.expectedGtin ?? requestGtin;
-        const filterLabel = partConfig.filterLabel ?? requestFilterLabel;
 
         const serviceOrder = await validateManualServiceOrderForProgramming(serviceOrderId, {
             partNumber,
@@ -80,10 +77,6 @@ export const createManualRead = async (
 
         if (gtin) {
             payload.gtin = gtin;
-        }
-
-        if (filterLabel) {
-            payload.filterLabel = filterLabel;
         }
 
         if (notes) {

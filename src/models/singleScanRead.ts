@@ -12,7 +12,6 @@ export interface SingleScanRead {
     gtin?: string;
     lot?: string;
     manufactureDate?: string;
-    filterLabel?: string;
     rawScan: string;
     notes?: string;
     createdBy?: string;
@@ -52,10 +51,6 @@ const singleScanReadSchema = new Schema<SingleScanRead>(
             trim: true,
         },
         manufactureDate: {
-            type: String,
-            trim: true,
-        },
-        filterLabel: {
             type: String,
             trim: true,
         },

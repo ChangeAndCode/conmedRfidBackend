@@ -1165,7 +1165,6 @@ export const createProgrammingRecordFromManualRead = async (
     const gtin = listQueryValue(read.gtin);
     const lot = listQueryValue(read.lot);
     const manufactureDate = listQueryValue(read.manufactureDate);
-    const filterLabel = listQueryValue(read.filterLabel);
     const rawReference = listQueryValue(read.rawReference);
     const notes = listQueryValue(read.notes);
     const createdBy = listQueryValue(read.createdBy);
@@ -1192,10 +1191,6 @@ export const createProgrammingRecordFromManualRead = async (
 
     if (manufactureDate) {
         payload.manufactureDate = manufactureDate;
-    }
-
-    if (filterLabel) {
-        payload.filterLabel = filterLabel;
     }
 
     if (rawReference) {
@@ -1233,7 +1228,6 @@ export const createProgrammingRecordFromSingleScanRead = async (
     const gtin = listQueryValue(read.gtin);
     const lot = listQueryValue(read.lot);
     const manufactureDate = listQueryValue(read.manufactureDate);
-    const filterLabel = listQueryValue(read.filterLabel);
     const notes = listQueryValue(read.notes);
     const createdBy = listQueryValue(read.createdBy);
 
@@ -1259,10 +1253,6 @@ export const createProgrammingRecordFromSingleScanRead = async (
 
     if (manufactureDate) {
         payload.manufactureDate = manufactureDate;
-    }
-
-    if (filterLabel) {
-        payload.filterLabel = filterLabel;
     }
 
     if (notes) {
@@ -1298,7 +1288,6 @@ export const createProgrammingRecordFromDoubleScanRead = async (
     const gtin = listQueryValue(read.gtin);
     const lot = listQueryValue(read.lot);
     const manufactureDate = listQueryValue(read.manufactureDate);
-    const filterLabel = listQueryValue(read.filterLabel);
     const notes = listQueryValue(read.notes);
     const createdBy = listQueryValue(read.createdBy);
 
@@ -1328,10 +1317,6 @@ export const createProgrammingRecordFromDoubleScanRead = async (
 
     if (manufactureDate) {
         payload.manufactureDate = manufactureDate;
-    }
-
-    if (filterLabel) {
-        payload.filterLabel = filterLabel;
     }
 
     if (notes) {

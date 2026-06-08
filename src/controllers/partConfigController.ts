@@ -25,7 +25,6 @@ type PartConfigBody = {
     usesLegacyRfidPayload?: unknown;
     legacyRfidPartNumber?: unknown;
     expectedGtin?: unknown;
-    filterLabel?: unknown;
     expectedLotLength?: unknown;
     isActive?: unknown;
 };
@@ -156,10 +155,6 @@ const copyOptionalFields = (source: PartConfig, target: PartConfig): void => {
         target.expectedGtin = source.expectedGtin;
     }
 
-    if (source.filterLabel) {
-        target.filterLabel = source.filterLabel;
-    }
-
     if (source.expectedLotLength) {
         target.expectedLotLength = source.expectedLotLength;
     }
@@ -167,7 +162,7 @@ const copyOptionalFields = (source: PartConfig, target: PartConfig): void => {
 
 const assignStringField = (
     target: PartConfig,
-    field: "description" | "expectedGtin" | "filterLabel",
+    field: "description" | "expectedGtin",
     value: string | undefined
 ): void => {
     if (value) {
@@ -297,7 +292,6 @@ export const createPartConfig = async (
         assignBooleanField(payload, "usesLegacyRfidPayload", normalizeOptionalBoolean(req.body.usesLegacyRfidPayload) ?? false);
         assignLegacyRfidPartNumberField(payload, normalizeLegacyRfidPartNumber(req.body.legacyRfidPartNumber));
         assignStringField(payload, "expectedGtin", normalizeExpectedGtin(req.body.expectedGtin));
-        assignStringField(payload, "filterLabel", normalizeOptionalText(req.body.filterLabel));
         assignNumberField(
             payload,
             "expectedLotLength",
@@ -393,10 +387,6 @@ export const updatePartConfig = async (
 
         if (hasOwn(req.body, "expectedGtin")) {
             assignStringField(nextConfig, "expectedGtin", normalizeExpectedGtin(req.body.expectedGtin));
-        }
-
-        if (hasOwn(req.body, "filterLabel")) {
-            assignStringField(nextConfig, "filterLabel", normalizeOptionalText(req.body.filterLabel));
         }
 
         if (hasOwn(req.body, "expectedLotLength")) {

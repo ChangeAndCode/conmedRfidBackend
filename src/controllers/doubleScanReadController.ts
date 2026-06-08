@@ -35,7 +35,6 @@ type PartConfigOption = {
     partNumber: string;
     description?: string;
     rfidProgram?: string;
-    filterLabel?: string;
     expectedGtin?: string;
     expectedLotLength?: number;
 };
@@ -57,7 +56,6 @@ const toPartConfigOption = (partConfig: {
     partNumber: string;
     description?: string;
     rfidProgram?: string;
-    filterLabel?: string;
     expectedGtin?: string;
     expectedLotLength?: number;
 }): PartConfigOption => {
@@ -72,10 +70,6 @@ const toPartConfigOption = (partConfig: {
 
     if (partConfig.rfidProgram) {
         option.rfidProgram = partConfig.rfidProgram;
-    }
-
-    if (partConfig.filterLabel) {
-        option.filterLabel = partConfig.filterLabel;
     }
 
     if (partConfig.expectedGtin) {
@@ -194,10 +188,6 @@ export const createDoubleScanRead = async (
         };
 
         payload.serviceOrder = serviceOrder.folio;
-
-        if (resolvedPartConfig.filterLabel) {
-            payload.filterLabel = resolvedPartConfig.filterLabel;
-        }
 
         if (notes) {
             payload.notes = notes;

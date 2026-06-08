@@ -12,7 +12,6 @@ export interface ManualRead {
     gtin?: string;
     lot?: string;
     manufactureDate?: string;
-    filterLabel?: string;
     rawReference?: string;
     notes?: string;
     createdBy?: string;
@@ -52,10 +51,6 @@ const manualReadSchema = new Schema<ManualRead>(
             trim: true,
         },
         manufactureDate: {
-            type: String,
-            trim: true,
-        },
-        filterLabel: {
             type: String,
             trim: true,
         },
