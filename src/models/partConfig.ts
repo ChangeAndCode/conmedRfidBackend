@@ -17,7 +17,6 @@ export interface PartConfig {
     filterLabel?: string;
     expectedLotLength?: number;
     isActive: boolean;
-    notes?: string;
     createdAt?: Date;
     updatedAt?: Date;
 }
@@ -80,10 +79,6 @@ const partConfigSchema = new Schema<PartConfig>(
             type: Boolean,
             default: true,
             required: true,
-        },
-        notes: {
-            type: String,
-            trim: true,
         },
     },
     {

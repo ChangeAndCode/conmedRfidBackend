@@ -8,21 +8,18 @@ export const defaultPartConfigs: SeedPartConfig[] = [
         legacyRfidPartNumber: "EMVS353",
         readingMode: "manual",
         isActive: true,
-        notes: "Carga inicial del catalogo manual",
         usesLegacyRfidPayload: true,
     },
     {
         partNumber: "QVC-MSF8D-1",
         readingMode: "manual",
         isActive: true,
-        notes: "Carga inicial del catalogo manual",
         usesLegacyRfidPayload: false,
     },
     {
         partNumber: "A2A00231",
         readingMode: "manual",
         isActive: true,
-        notes: "Carga inicial del catalogo manual",
         usesLegacyRfidPayload: false,
     },
     {
@@ -30,7 +27,6 @@ export const defaultPartConfigs: SeedPartConfig[] = [
         legacyRfidPartNumber: "A74802",
         readingMode: "manual",
         isActive: true,
-        notes: "Carga inicial del catalogo manual",
         usesLegacyRfidPayload: true,
     },
     {
@@ -38,7 +34,6 @@ export const defaultPartConfigs: SeedPartConfig[] = [
         legacyRfidPartNumber: "A84962",
         readingMode: "manual",
         isActive: true,
-        notes: "Carga inicial del catalogo manual",
         usesLegacyRfidPayload: true,
     },
     {
@@ -50,7 +45,6 @@ export const defaultPartConfigs: SeedPartConfig[] = [
         filterLabel: "902227",
         expectedLotLength: 9,
         isActive: true,
-        notes: "Requiere dos codigos de barras",
         usesLegacyRfidPayload: true,
     },
     {
@@ -62,7 +56,6 @@ export const defaultPartConfigs: SeedPartConfig[] = [
         filterLabel: "902227",
         expectedLotLength: 9,
         isActive: true,
-        notes: "Requiere dos codigos de barras",
         usesLegacyRfidPayload: true,
     },
     {
@@ -73,7 +66,6 @@ export const defaultPartConfigs: SeedPartConfig[] = [
         filterLabel: "P000027957",
         expectedLotLength: 9,
         isActive: true,
-        notes: "Requiere dos codigos de barras",
         usesLegacyRfidPayload: false,
     },
     {
@@ -85,7 +77,6 @@ export const defaultPartConfigs: SeedPartConfig[] = [
         filterLabel: "903008",
         expectedLotLength: 9,
         isActive: true,
-        notes: "Requiere un codigo de barras; payload legado por CTVS353",
         usesLegacyRfidPayload: true,
     },
 ];

@@ -28,7 +28,6 @@ type PartConfigBody = {
     filterLabel?: unknown;
     expectedLotLength?: unknown;
     isActive?: unknown;
-    notes?: unknown;
 };
 
 const hasOwn = (value: object, key: string): boolean => Object.prototype.hasOwnProperty.call(value, key);
@@ -164,15 +163,11 @@ const copyOptionalFields = (source: PartConfig, target: PartConfig): void => {
     if (source.expectedLotLength) {
         target.expectedLotLength = source.expectedLotLength;
     }
-
-    if (source.notes) {
-        target.notes = source.notes;
-    }
 };
 
 const assignStringField = (
     target: PartConfig,
-    field: "description" | "expectedGtin" | "filterLabel" | "notes",
+    field: "description" | "expectedGtin" | "filterLabel",
     value: string | undefined
 ): void => {
     if (value) {
@@ -308,7 +303,6 @@ export const createPartConfig = async (
             "expectedLotLength",
             normalizeOptionalPositiveInteger(req.body.expectedLotLength, "expectedLotLength")
         );
-        assignStringField(payload, "notes", normalizeOptionalText(req.body.notes));
 
         validatePartConfig(payload);
         await validatePartConfigCatalogReferences(payload, {
@@ -411,10 +405,6 @@ export const updatePartConfig = async (
                 "expectedLotLength",
                 normalizeOptionalPositiveInteger(req.body.expectedLotLength, "expectedLotLength")
             );
-        }
-
-        if (hasOwn(req.body, "notes")) {
-            assignStringField(nextConfig, "notes", normalizeOptionalText(req.body.notes));
         }
 
         validatePartConfig(nextConfig);
