@@ -16,7 +16,6 @@ export interface DoubleScanRead {
     serviceOrder?: string;
     partNumber: string;
     rfidProgram: string;
-    filterLabel?: string;
     firstBarcodeRaw: string;
     secondBarcodeRaw: string;
     firstScanFields: BarcodeFields;
@@ -80,10 +79,6 @@ const doubleScanReadSchema = new Schema<DoubleScanRead>(
             required: true,
             trim: true,
             uppercase: true,
-        },
-        filterLabel: {
-            type: String,
-            trim: true,
         },
         firstBarcodeRaw: {
             type: String,

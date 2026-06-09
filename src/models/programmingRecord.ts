@@ -70,7 +70,6 @@ export interface ProgrammingRecord {
     gtin?: string;
     lot?: string;
     manufactureDate?: string;
-    filterLabel?: string;
     rawSourceData: ProgrammingRawSourceData;
     verificationData?: ProgrammingVerificationData;
     verificationMatchedBy?: string;
@@ -322,10 +321,6 @@ const programmingRecordSchema = new Schema<ProgrammingRecord>(
             trim: true,
         },
         manufactureDate: {
-            type: String,
-            trim: true,
-        },
-        filterLabel: {
             type: String,
             trim: true,
         },

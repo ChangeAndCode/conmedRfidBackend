@@ -25,10 +25,8 @@ type PartConfigBody = {
     usesLegacyRfidPayload?: unknown;
     legacyRfidPartNumber?: unknown;
     expectedGtin?: unknown;
-    filterLabel?: unknown;
     expectedLotLength?: unknown;
     isActive?: unknown;
-    notes?: unknown;
 };
 
 const hasOwn = (value: object, key: string): boolean => Object.prototype.hasOwnProperty.call(value, key);
@@ -157,22 +155,14 @@ const copyOptionalFields = (source: PartConfig, target: PartConfig): void => {
         target.expectedGtin = source.expectedGtin;
     }
 
-    if (source.filterLabel) {
-        target.filterLabel = source.filterLabel;
-    }
-
     if (source.expectedLotLength) {
         target.expectedLotLength = source.expectedLotLength;
-    }
-
-    if (source.notes) {
-        target.notes = source.notes;
     }
 };
 
 const assignStringField = (
     target: PartConfig,
-    field: "description" | "expectedGtin" | "filterLabel" | "notes",
+    field: "description" | "expectedGtin",
     value: string | undefined
 ): void => {
     if (value) {
@@ -302,13 +292,11 @@ export const createPartConfig = async (
         assignBooleanField(payload, "usesLegacyRfidPayload", normalizeOptionalBoolean(req.body.usesLegacyRfidPayload) ?? false);
         assignLegacyRfidPartNumberField(payload, normalizeLegacyRfidPartNumber(req.body.legacyRfidPartNumber));
         assignStringField(payload, "expectedGtin", normalizeExpectedGtin(req.body.expectedGtin));
-        assignStringField(payload, "filterLabel", normalizeOptionalText(req.body.filterLabel));
         assignNumberField(
             payload,
             "expectedLotLength",
             normalizeOptionalPositiveInteger(req.body.expectedLotLength, "expectedLotLength")
         );
-        assignStringField(payload, "notes", normalizeOptionalText(req.body.notes));
 
         validatePartConfig(payload);
         await validatePartConfigCatalogReferences(payload, {
@@ -401,20 +389,12 @@ export const updatePartConfig = async (
             assignStringField(nextConfig, "expectedGtin", normalizeExpectedGtin(req.body.expectedGtin));
         }
 
-        if (hasOwn(req.body, "filterLabel")) {
-            assignStringField(nextConfig, "filterLabel", normalizeOptionalText(req.body.filterLabel));
-        }
-
         if (hasOwn(req.body, "expectedLotLength")) {
             assignNumberField(
                 nextConfig,
                 "expectedLotLength",
                 normalizeOptionalPositiveInteger(req.body.expectedLotLength, "expectedLotLength")
             );
-        }
-
-        if (hasOwn(req.body, "notes")) {
-            assignStringField(nextConfig, "notes", normalizeOptionalText(req.body.notes));
         }
 
         validatePartConfig(nextConfig);

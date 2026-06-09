@@ -233,7 +233,6 @@ const toPartConfigOption = (partConfig: {
     description?: string;
     readingMode: string;
     rfidProgram?: string;
-    filterLabel?: string;
     expectedLotLength?: number;
 }): Record<string, string | number | undefined> => {
     return {
@@ -242,7 +241,6 @@ const toPartConfigOption = (partConfig: {
         description: partConfig.description,
         readingMode: partConfig.readingMode,
         rfidProgram: partConfig.rfidProgram,
-        filterLabel: partConfig.filterLabel,
         expectedLotLength: partConfig.expectedLotLength,
     };
 };

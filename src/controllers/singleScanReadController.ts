@@ -21,7 +21,6 @@ type CreateSingleScanReadBody = {
     gtin?: unknown;
     lot?: unknown;
     manufactureDate?: unknown;
-    filterLabel?: unknown;
     notes?: unknown;
     createdBy?: unknown;
 };
@@ -94,12 +93,10 @@ export const createSingleScanRead = async (
         };
 
         const requestRfidProgram = normalizeOptionalText(req.body.rfidProgram)?.toUpperCase();
-        const requestFilterLabel = normalizeOptionalText(req.body.filterLabel);
         const notes = normalizeOptionalText(req.body.notes);
         const createdBy = normalizeOptionalText(req.body.createdBy);
         const rfidProgram = partConfig.rfidProgram ?? requestRfidProgram;
         const gtin = partConfig.expectedGtin ?? resolvedScan.gtin;
-        const filterLabel = partConfig.filterLabel ?? requestFilterLabel;
 
         const serviceOrder = await validateSingleScanServiceOrderForProgramming(serviceOrderId, {
             partNumber,
@@ -117,10 +114,6 @@ export const createSingleScanRead = async (
 
         if (gtin) {
             payload.gtin = gtin;
-        }
-
-        if (filterLabel) {
-            payload.filterLabel = filterLabel;
         }
 
         if (notes) {

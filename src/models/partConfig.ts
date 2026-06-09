@@ -14,10 +14,8 @@ export interface PartConfig {
     usesLegacyRfidPayload: boolean;
     legacyRfidPartNumber?: string;
     expectedGtin?: string;
-    filterLabel?: string;
     expectedLotLength?: number;
     isActive: boolean;
-    notes?: string;
     createdAt?: Date;
     updatedAt?: Date;
 }
@@ -68,10 +66,6 @@ const partConfigSchema = new Schema<PartConfig>(
                 message: "El campo expectedGtin debe contener exactamente 14 digitos numericos",
             },
         },
-        filterLabel: {
-            type: String,
-            trim: true,
-        },
         expectedLotLength: {
             type: Number,
             min: 1,
@@ -80,10 +74,6 @@ const partConfigSchema = new Schema<PartConfig>(
             type: Boolean,
             default: true,
             required: true,
-        },
-        notes: {
-            type: String,
-            trim: true,
         },
     },
     {
